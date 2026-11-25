@@ -12,6 +12,7 @@ import os
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import IsolationForest
+from sklearn.linear_model import LinearRegression
 
 import analytics as an
 
@@ -146,3 +147,47 @@ def budget_status(df, month, budgets):
         pct = spent / limit * 100
         rows.append((category, limit, spent, pct, status_of(pct)))
     return pd.DataFrame(rows, columns=["category", "budget", "spent", "pct", "status"])
+
+
+# =================================================================================================
+# 4. Spending forecast (Linear Regression)
+# =================================================================================================
+def monthly_by_category(df):
+    """Spending per month (rows) and category (columns); months with no spending in a category = 0.
+    Debits except Transfers only. The index is the first day of each month, oldest first."""
+    spend = an.spending(df)
+    month = spend["date"].dt.to_period("M").dt.to_timestamp()
+    table = spend.pivot_table(index=month, columns="category", values="amount", aggfunc="sum", fill_value=0.0)
+    return table.sort_index()
+
+
+def forecast_next_month(df, min_months=3):
+    """Predict next month's spending per category from past monthly totals.
+    Returns (history, forecast, dropped_partial):
+      history  = monthly_by_category() of the complete months used for training
+      forecast = DataFrame(category, predicted), biggest first (empty if too little data)
+      dropped_partial = True when the last month was left out because the statement ends mid-month.
+
+    For each category we fit a straight line  amount = a * month_number + b  (Linear Regression)
+    and read it at the next month number. Negative predictions are set to 0."""
+    history = monthly_by_category(df)
+    empty = pd.DataFrame(columns=["category", "predicted"])
+    if history.empty:
+        return history, empty, False
+
+    # A statement that stops mid-month would make its last month look cheap and bend the line down.
+    last_day = df["date"].max()
+    dropped_partial = (last_day.to_period("M").end_time.normalize() - last_day.normalize()).days > 3
+    if dropped_partial:
+        history = history.iloc[:-1]
+    if len(history) < min_months:
+        return history, empty, dropped_partial
+
+    x = np.arange(len(history)).reshape(-1, 1)          # month numbers 0, 1, 2, ...
+    next_x = [[len(history)]]                           # the month we want to predict
+    rows = []
+    for category in history.columns:
+        model = LinearRegression().fit(x, history[category].values)
+        rows.append((category, max(float(model.predict(next_x)[0]), 0.0)))
+    forecast = pd.DataFrame(rows, columns=["category", "predicted"])
+    return history, forecast.sort_values("predicted", ascending=False).reset_index(drop=True), dropped_partial

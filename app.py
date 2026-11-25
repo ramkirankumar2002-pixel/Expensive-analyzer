@@ -4,12 +4,14 @@
 # Pages (sidebar):  Dashboard  |  Transactions  |  Insights  |  Model
 # The number crunching lives in analytics.py; this file only draws things.
 
+import pandas as pd
 import plotly.express as px
 import streamlit as st
 
 import analytics as an
 import categorizer as cz
 import insights as ins
+import report as rp
 from parser import MissingColumnError, parse_statement
 
 st.set_page_config(page_title="Expense Analyzer", page_icon="₹", layout="wide")
@@ -279,11 +281,11 @@ def show_insights(table):
             st.toast(f"Saved budgets to {ins.BUDGETS_PATH}.")
             st.rerun()
 
+    months = sorted(table["date"].dt.to_period("M").unique(), reverse=True)     # newest first
+    month = st.selectbox("Month (used for budgets and the AI report)", months,
+                         format_func=lambda p: p.strftime("%B %Y"))
     if not budgets:
         st.info("Set a budget above to track it month by month.")
-        return
-    months = sorted(table["date"].dt.to_period("M").unique(), reverse=True)     # newest first
-    month = st.selectbox("Month", months, format_func=lambda p: p.strftime("%B %Y"))
     for row in ins.budget_status(table, month.to_timestamp(), budgets).itertuples():
         st.write(f"{STATUS_ICON[row.status]} **{row.category}**: {an.inr(row.spent)} of "
                  f"{an.inr(row.budget)} ({row.pct:.0f}%)")
@@ -292,6 +294,61 @@ def show_insights(table):
             st.error(f"{row.category} is over budget by {an.inr(row.spent - row.budget)}.")
         elif row.status == "warning":
             st.warning(f"{row.category} has used {row.pct:.0f}% of its budget.")
+
+    show_forecast(table)
+    show_ai_report(table, month, budgets)
+
+
+def show_forecast(table):
+    """Next month's spending per category, predicted with Linear Regression on past monthly totals."""
+    st.subheader("Spending forecast")
+    history, forecast, dropped_partial = ins.forecast_next_month(table)
+    if forecast.empty:
+        st.info("Need at least 3 complete months of spending to forecast.")
+        return
+
+    # Chart: one stacked bar per past month + one for the predicted month
+    actual = history.rename_axis("month").reset_index().melt(id_vars="month", var_name="category", value_name="amount")
+    actual["label"] = actual["month"].dt.strftime("%b %Y")
+    next_month = history.index[-1] + pd.DateOffset(months=1)
+    predicted = forecast.rename(columns={"predicted": "amount"}).assign(label=next_month.strftime("%b %Y") + " (predicted)")
+    chart_data = pd.concat([actual[["label", "category", "amount"]], predicted[["label", "category", "amount"]]])
+    chart_data["text"] = chart_data["amount"].map(an.inr)
+    fig = px.bar(chart_data, x="label", y="amount", color="category", custom_data="text",
+                 title="Actual vs predicted spending", labels={"label": "Month", "amount": "Spent (₹)"})
+    fig.update_traces(hovertemplate="%{x}<br>%{fullData.name}: %{customdata[0]}<extra></extra>")
+    st.plotly_chart(fig, width="stretch")
+
+    # Table: predicted amount per category + a Total row
+    total = forecast["predicted"].sum()
+    shown = pd.concat([forecast, pd.DataFrame({"category": ["Total"], "predicted": [total]})])
+    st.dataframe(shown.assign(predicted=shown["predicted"].map(an.inr)).rename(
+        columns={"category": "Category", "predicted": f"Predicted for {next_month.strftime('%B %Y')}"}),
+        hide_index=True, width="stretch")
+    note = "This is only an estimate based on past trends, not a guarantee."
+    if dropped_partial:
+        note += " The last month is incomplete, so it was left out of the forecast."
+    st.caption(note)
+
+
+def show_ai_report(table, month, budgets):
+    """Ask Gemini for a short summary and saving tips, sending aggregated stats only."""
+    st.subheader("AI monthly report")
+    st.caption("Only totals, percentages and counts are sent to Gemini: never transaction descriptions or merchant names.")
+    key = f"report_{month}"                                   # one saved report per month
+    if st.button("Generate AI Report"):
+        stats = rp.build_report_stats(table, month.to_timestamp(), budgets)
+        with st.spinner("Asking Gemini..."):
+            try:
+                st.session_state[key] = rp.generate_report(stats)
+            except rp.ReportError as error:
+                st.session_state.pop(key, None)
+                st.error(str(error))
+    if key in st.session_state:
+        result = st.session_state[key]
+        st.write(result["summary"])
+        for tip in result["tips"]:
+            st.markdown(f"- 💡 {tip}")
 
 
 # --- Route to the chosen page ----------------------------------------------------------------

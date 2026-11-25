@@ -85,6 +85,40 @@ def test_budgets_save_and_load():
     assert ins.load_budgets(path) == {}                # broken file
 
 
+def month_rows(amounts, category="Food", last_day="2026-%02d-28"):
+    """One payment per month on the 5th, plus a payment on the 28th so each month counts as complete."""
+    rows = []
+    for m, amt in enumerate(amounts, start=1):
+        rows.append((f"2026-{m:02d}-05", "Shop", amt, category))
+        rows.append((last_day % m, "Shop", 0, category))
+    return rows
+
+
+def test_forecast_continues_a_straight_line():
+    history, forecast, dropped = ins.forecast_next_month(frame(month_rows([100, 200, 300])))
+    assert not dropped and len(history) == 3
+    assert round(forecast.iloc[0]["predicted"]) == 400
+
+
+def test_forecast_never_negative():
+    _, forecast, _ = ins.forecast_next_month(frame(month_rows([300, 100, 0])))
+    assert forecast.iloc[0]["predicted"] == 0
+
+
+def test_forecast_needs_three_months_and_ignores_transfers():
+    _, forecast, _ = ins.forecast_next_month(frame(month_rows([100, 200])))
+    assert forecast.empty
+    rows = month_rows([100, 200, 300]) + [("2026-02-10", "Mom", 99999, "Transfers")]
+    _, forecast, _ = ins.forecast_next_month(frame(rows))
+    assert list(forecast["category"]) == ["Food"]
+
+
+def test_forecast_drops_partial_last_month():
+    rows = month_rows([100, 200, 300]) + [("2026-04-05", "Shop", 10, "Food")]    # statement ends on 5 April
+    history, forecast, dropped = ins.forecast_next_month(frame(rows))
+    assert dropped and len(history) == 3 and round(forecast.iloc[0]["predicted"]) == 400
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
