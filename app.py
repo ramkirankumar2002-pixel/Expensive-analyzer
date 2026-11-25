@@ -1,7 +1,7 @@
 # app.py - Streamlit dashboard: upload a statement, see the analysis, fix wrong categories, retrain.
 # Run with:  streamlit run app.py
 #
-# Pages (sidebar):  Dashboard  |  Transactions  |  Model
+# Pages (sidebar):  Dashboard  |  Transactions  |  Insights  |  Model
 # The number crunching lives in analytics.py; this file only draws things.
 
 import plotly.express as px
@@ -9,6 +9,7 @@ import streamlit as st
 
 import analytics as an
 import categorizer as cz
+import insights as ins
 from parser import MissingColumnError, parse_statement
 
 st.set_page_config(page_title="Expense Analyzer", page_icon="₹", layout="wide")
@@ -21,6 +22,10 @@ if "scores" not in st.session_state:
 st.session_state.setdefault("editor_version", 0)  # bump it to reset the table's pending edits
 
 
+# Credits get these two labels instead of a spending category (see categorizer.credit_label)
+CREDIT_LABELS = ["Income", "Refund"]
+
+
 def categorize(parsed):
     """Rules + ML + the user's saved corrections for every row of the parsed statement."""
     return cz.categorize_dataframe(parsed, bundle=st.session_state.bundle)
@@ -28,7 +33,7 @@ def categorize(parsed):
 
 # --- Sidebar: navigation + upload ------------------------------------------------------------
 st.sidebar.title("Expense Analyzer")
-page = st.sidebar.radio("Go to", ["Dashboard", "Transactions", "Model"], label_visibility="collapsed")
+page = st.sidebar.radio("Go to", ["Dashboard", "Transactions", "Insights", "Model"], label_visibility="collapsed")
 st.sidebar.divider()
 
 uploaded = st.sidebar.file_uploader("Upload your bank / UPI statement", type=["csv", "xlsx", "xls"])
@@ -65,12 +70,14 @@ def show_dashboard(table):
 
     # --- Summary cards: spent / income / savings / savings % ---
     s = an.summary(table)
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Total spent", an.inr(s["spent"]))
-    c2.metric("Income", an.inr(s["income"]))
-    c3.metric("Savings", an.inr(s["savings"]))
-    c4.metric("Savings %", "-" if s["savings_pct"] is None else f"{s['savings_pct']:.1f}%")
-    st.caption("Spending = debits only. Credits (salary, refunds) count as income.")
+    c2.metric("Transfers out", an.inr(s["transfers"]))
+    c3.metric("Income", an.inr(s["income"]))
+    c4.metric("Savings", an.inr(s["savings"]))
+    c5.metric("Savings %", "-" if s["savings_pct"] is None else f"{s['savings_pct']:.1f}%")
+    st.caption("Spending = debits except Transfers (shown separately). Credits (salary, refunds) count as income. "
+               "Savings = income - spent.")
 
     if s["spent"] == 0:
         st.info("No debit transactions in this statement, so there is nothing to chart.")
@@ -124,7 +131,7 @@ def show_transactions(table):
     f1, f2, f3 = st.columns([2, 2, 2])
     first, last = table["date"].min().date(), table["date"].max().date()
     date_range = f1.date_input("Date range", value=(first, last), min_value=first, max_value=last)
-    categories = f2.multiselect("Category", cz.CATEGORIES, placeholder="All categories")
+    categories = f2.multiselect("Category", cz.CATEGORIES + CREDIT_LABELS, placeholder="All categories")
     top_amount = float(table["amount"].max())
     a1, a2 = f3.columns(2)
     min_amount = a1.number_input("Min ₹", min_value=0.0, max_value=top_amount, value=0.0)
@@ -135,15 +142,16 @@ def show_transactions(table):
     shown = an.filter_transactions(table, start, end, categories, min_amount, max_amount, search)
 
     # Totals of what is currently shown (debits and credits kept apart)
-    spent, income = an.debits(shown)["amount"].sum(), an.credits(shown)["amount"].sum()
+    spent, income = an.spending(shown)["amount"].sum(), an.credits(shown)["amount"].sum()
+    transfers = an.transfers_out(shown)["amount"].sum()
     st.caption(f"Showing **{len(shown)}** of {len(table)} transactions  |  "
-               f"Spent {an.inr(spent)}  |  Income {an.inr(income)}")
+               f"Spent {an.inr(spent)}  |  Transfers out {an.inr(transfers)}  |  Income {an.inr(income)}")
 
     # --- Editable table: change a category with the dropdown ---
-    st.caption("Wrong category? Pick the right one in the dropdown, then click 'Save corrections'.")
+    st.caption("Wrong category? Pick the right one in the dropdown, then click 'Save corrections'. "
+               "Credits are always Income / Refund and cannot be corrected.")
     view = shown[["date", "merchant", "type", "amount", "category"]].copy()
     view["date"] = view["date"].dt.date                               # date only, no 00:00:00
-    view["amount"] = view["amount"].map(lambda a: an.inr(a, 2))       # ₹1,25,000.00 (text, so no sorting by amount)
     # The editor key includes the filters: if they change, the editor starts fresh instead of
     # mixing up edits made on a different set of rows.
     filter_key = hash((str(date_range), tuple(categories), min_amount, max_amount, search))
@@ -153,8 +161,8 @@ def show_transactions(table):
             "date": st.column_config.DateColumn("Date", format="DD MMM YYYY"),
             "merchant": "Merchant",
             "type": "Type",
-            "amount": st.column_config.TextColumn("Amount"),
-            "category": st.column_config.SelectboxColumn("Category", options=cz.CATEGORIES, required=True),
+            "amount": st.column_config.NumberColumn("Amount", format="₹%.2f"),   # a real number, so it sorts correctly
+            "category": st.column_config.SelectboxColumn("Category", options=cz.CATEGORIES + CREDIT_LABELS, required=True),
         },
         disabled=["date", "merchant", "type", "amount"],              # only the category can be changed
         hide_index=True,
@@ -163,7 +171,11 @@ def show_transactions(table):
     )
 
     # Rows (by their original row number, kept in the index) where the dropdown differs from the prediction
-    changed = edited.index[edited["category"] != shown["category"]]
+    # Only debits can be corrected, and only to one of the 10 spending categories
+    differs = edited["category"] != shown["category"]
+    changed = edited.index[differs & (shown["type"] == "debit") & edited["category"].isin(cz.CATEGORIES)]
+    if (differs.sum() - len(changed)) > 0:
+        st.warning("Some edits are ignored: credits stay Income / Refund, and debits need a spending category.")
     if st.button(f"Save corrections ({len(changed)} changed)", disabled=len(changed) == 0):
         # Save the masked description (not the merchant) because that is what the model trains on
         rows = [(st.session_state.parsed.at[i, "description"], edited.at[i, "category"])
@@ -217,6 +229,71 @@ def show_model():
         st.caption(f"Retrained on the original data + {result['bundle']['n_corrections']} correction(s).")
 
 
+# =================================================================================================
+# Page 4: Insights (unusual spends, subscriptions, budgets). Logic lives in insights.py
+# =================================================================================================
+STATUS_ICON = {"ok": "🟢", "warning": "🟡", "over": "🔴"}
+
+
+def show_insights(table):
+    st.title("Insights")
+
+    # --- 1. Unusual spends ---
+    st.subheader("Unusual spends")
+    st.caption("An Isolation Forest looks at amount, category and day of week and flags debits that "
+               "don't look like the rest.")
+    odd = ins.unusual_spends(table)
+    if odd.empty:
+        st.info("Nothing unusual found (or too few transactions to tell).")
+    else:
+        st.dataframe(
+            odd.assign(date=odd["date"].dt.date, amount=odd["amount"].map(an.inr))
+            [["date", "merchant", "category", "amount", "reason"]],
+            hide_index=True, width="stretch")
+
+    # --- 2. Subscriptions and recurring payments ---
+    st.subheader("Subscriptions and recurring payments")
+    st.caption("Same merchant, similar amount, about 30 days apart (at least 3 payments).")
+    subs = ins.find_subscriptions(table)
+    if subs.empty:
+        st.info("No recurring payments found.")
+    else:
+        st.markdown(f"**You spend {an.inr(ins.subscription_total(subs))}/month on subscriptions.**")
+        st.dataframe(
+            subs.assign(monthly_amount=subs["monthly_amount"].map(an.inr),
+                        last_paid=subs["last_paid"].dt.date, next_due=subs["next_due"].dt.date)
+            [["merchant", "category", "monthly_amount", "payments", "last_paid", "next_due"]],
+            hide_index=True, width="stretch")
+
+    # --- 3. Budgets ---
+    st.subheader("Budgets")
+    budgets = ins.load_budgets()
+    spendable = [c for c in cz.CATEGORIES if c != "Transfers"]      # transfers are not spending
+    with st.expander("Set monthly budgets (₹, 0 = no budget)"):
+        cols = st.columns(3)
+        new = {c: cols[i % 3].number_input(c, min_value=0, step=500, value=int(budgets.get(c, 0)),
+                                           key=f"budget_{c}")
+               for i, c in enumerate(spendable)}
+        if st.button("Save budgets"):
+            ins.save_budgets(new)
+            st.toast(f"Saved budgets to {ins.BUDGETS_PATH}.")
+            st.rerun()
+
+    if not budgets:
+        st.info("Set a budget above to track it month by month.")
+        return
+    months = sorted(table["date"].dt.to_period("M").unique(), reverse=True)     # newest first
+    month = st.selectbox("Month", months, format_func=lambda p: p.strftime("%B %Y"))
+    for row in ins.budget_status(table, month.to_timestamp(), budgets).itertuples():
+        st.write(f"{STATUS_ICON[row.status]} **{row.category}**: {an.inr(row.spent)} of "
+                 f"{an.inr(row.budget)} ({row.pct:.0f}%)")
+        st.progress(min(row.pct / 100, 1.0))
+        if row.status == "over":
+            st.error(f"{row.category} is over budget by {an.inr(row.spent - row.budget)}.")
+        elif row.status == "warning":
+            st.warning(f"{row.category} has used {row.pct:.0f}% of its budget.")
+
+
 # --- Route to the chosen page ----------------------------------------------------------------
 if page == "Model":
     show_model()
@@ -225,5 +302,7 @@ elif "table" not in st.session_state:
     st.info("Upload a bank / UPI statement (CSV or Excel) in the sidebar to get started.")
 elif page == "Dashboard":
     show_dashboard(st.session_state.table)
+elif page == "Insights":
+    show_insights(st.session_state.table)
 else:
     show_transactions(st.session_state.table)

@@ -7,15 +7,16 @@ import analytics as an
 
 
 def sample():
-    """6 transactions: 4 debits, 2 credits (a salary and a refund)."""
+    """8 transactions: 6 debits (one is a Transfer), 2 credits (a salary and a refund)."""
     return pd.DataFrame({
         "date": pd.to_datetime(["2026-04-30", "2026-05-01", "2026-05-02",
-                                "2026-05-10", "2026-05-15", "2026-06-01"]),
-        "description": ["UPI Swiggy", "UPI Swiggy", "Rent", "Salary", "Amazon refund", "UPI DMart"],
-        "merchant": ["Swiggy", "Swiggy", "Landlord", "Employer", "Amazon", "DMart"],
-        "amount": [500.0, 300.0, 10000.0, 50000.0, 700.0, 1000.0],
-        "type": ["debit", "debit", "debit", "credit", "credit", "debit"],
-        "category": ["Food", "Food", "Rent", "Others", "Shopping", "Groceries"],
+                                "2026-05-10", "2026-05-15", "2026-06-01",
+                                "2026-06-02", "2026-06-03"]),
+        "description": ["UPI Swiggy", "UPI Swiggy", "Rent", "Salary", "Amazon refund", "UPI DMart", "UPI Rahul", "Sent to Mom"],
+        "merchant": ["Swiggy", "Swiggy", "Landlord", "Employer", "Amazon", "DMart", "Rahul", "Mom"],
+        "amount": [500.0, 300.0, 10000.0, 50000.0, 700.0, 1000.0, 5000.0, 20000.0],
+        "type": ["debit", "debit", "debit", "credit", "credit", "debit", "debit", "debit"],
+        "category": ["Food", "Food", "Rent", "Others", "Shopping", "Groceries", "Transfers", "Transfers"],
     })
 
 
@@ -32,7 +33,8 @@ def test_inr():
 
 def test_summary_counts_credits_as_income_only():
     s = an.summary(sample())
-    assert s["spent"] == 11800.0           # 500 + 300 + 10000 + 1000 (refund NOT subtracted/added here)
+    assert s["spent"] == 11800.0           # 500 + 300 + 10000 + 1000 (Transfers and credits not included)
+    assert s["transfers"] == 25000.0       # 5000 + 20000 shown separately
     assert s["income"] == 50700.0          # salary + refund
     assert s["savings"] == 50700.0 - 11800.0
     assert abs(s["savings_pct"] - (38900 / 50700 * 100)) < 1e-9
@@ -48,6 +50,15 @@ def test_category_totals_ignore_credits():
     assert dict(zip(totals["category"], totals["amount"])) == {"Rent": 10000.0, "Food": 800.0, "Groceries": 1000.0}
     assert totals.iloc[0]["category"] == "Rent"      # biggest first
     assert "Shopping" not in set(totals["category"])  # only a refund was in Shopping
+
+
+def test_transfers_are_not_spending():
+    df = sample()
+    assert "Transfers" not in set(an.category_totals(df)["category"])
+    assert "Rahul" not in set(an.top_merchants(df, n=10)["merchant"])
+    assert 20000.0 not in list(an.biggest_transactions(df, n=10)["amount"])
+    assert an.monthly_spending(df)["amount"].sum() == 11800.0
+    assert list(an.transfers_out(df)["amount"]) == [5000.0, 20000.0]
 
 
 def test_monthly_spending():
@@ -70,12 +81,12 @@ def test_biggest_transactions_are_debits():
 
 def test_filter_transactions():
     df = sample()
-    assert len(an.filter_transactions(df)) == 6                                    # no filters
+    assert len(an.filter_transactions(df)) == 8                                    # no filters
     assert len(an.filter_transactions(df, start="2026-05-01", end="2026-05-10")) == 3   # end day included
     assert len(an.filter_transactions(df, categories=["Food"])) == 2
-    assert len(an.filter_transactions(df, min_amount=1000, max_amount=10000)) == 2
+    assert len(an.filter_transactions(df, min_amount=1000, max_amount=10000)) == 3
     assert len(an.filter_transactions(df, search="swiggy")) == 2                   # case-insensitive
-    assert len(an.filter_transactions(df, search="  ")) == 6                       # blank search = no filter
+    assert len(an.filter_transactions(df, search="  ")) == 8                       # blank search = no filter
     assert len(an.filter_transactions(df, categories=["Food"], min_amount=400)) == 1   # filters combine
 
 

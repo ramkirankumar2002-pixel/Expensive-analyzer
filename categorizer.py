@@ -10,6 +10,7 @@
 
 import os
 import re
+from difflib import SequenceMatcher
 
 import joblib
 import matplotlib
@@ -25,11 +26,14 @@ from sklearn.model_selection import GroupKFold, train_test_split
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.pipeline import Pipeline
 
+from merchants import NEW_MERCHANTS   # more well-known Indian merchants (also used for training rows)
+from people import BUSINESS_WORDS, FIRST_NAMES, RELATIONS   # to spot payments to people
+
 # The fixed category list from the project rules (do not change).
 CATEGORIES = ["Food", "Groceries", "Travel", "Shopping", "Bills", "Rent",
               "Entertainment", "Health", "Transfers", "Others"]
 
-DATA_PATH = "data/transactions.csv"
+DATA_PATH = "data/training.csv"
 MODEL_PATH = "models/categorizer.joblib"
 MATRIX_PATH = "models/confusion_matrix.png"                 # messy (realistic) test set
 CLEAN_MATRIX_PATH = "models/confusion_matrix_clean.png"     # clean random split (too easy)
@@ -46,7 +50,8 @@ CONFIDENCE_THRESHOLD = 0.40
 # ---------------------------------------------------------------------------
 KEYWORD_RULES = {
     "Transfers": ["p2p", "neft", "imps", "self transfer",
-                  "debt repayment", "credit card payment", "revi credit"],
+                  "debt repayment", "credit card payment", "revi credit",
+                  "sent to", "transfer to", "money transfer", "family support", "pocket money", "to friend"],
     "Rent": ["rent", "landlord", "apartment"],
     "Food": ["swiggy", "zomato", "dominos", "mcdonalds", "starbucks", "kfc",
              "pizza", "burger", "restaurant", "cafe", "chai",
@@ -73,7 +78,7 @@ def clean_text(description):
     """Turn a raw narration into plain lowercase words.
     'UPI/428799513174/Swiggy/swiggy@ybl' -> 'swiggy swiggy'
     We drop 'upi', numbers/reference ids and UPI handles because they say nothing about the category."""
-    text = str(description).lower()
+    text = str(description).lower().replace("'", "")   # Domino's -> dominos
     text = re.sub(r"[\w.*]+@[a-z0-9.]+", " ", text)  # UPI ids like swiggy@ybl or ra****@oksbi (stops at "/", "-" or space)
     text = re.sub(r"\bupi\b", " ", text)       # the word UPI is on every row
     text = re.sub(r"\d{4,}", " ", text)       # long number runs = reference ids (short ones stay: p2p, 1mg)
@@ -81,14 +86,88 @@ def clean_text(description):
     return re.sub(r"\s+", " ", text).strip()
 
 
-def rule_category(description):
-    """Layer 1. Return the category whose keyword appears in the text, or None if nothing matches."""
-    text = clean_text(description)
+# Every merchant in merchants.py is also a keyword for its category.
+for _category, _names in NEW_MERCHANTS.items():
+    for _name in _names:
+        _keyword = clean_text(_name)
+        if _keyword not in KEYWORD_RULES[_category]:
+            KEYWORD_RULES[_category].append(_keyword)
+
+
+# Fuzzy matching: a keyword also matches a slightly misspelled word ("swigy" -> "swiggy").
+# difflib's ratio is 1.0 for identical text and 0.0 for nothing in common.
+FUZZY_MIN_RATIO = 0.80    # how similar a word must be to the keyword
+FUZZY_MIN_LENGTH = 5      # short keywords (ola, jio, kfc, gas) would match too many wrong words
+FUZZY_REAL_WORDS = {"interest"}   # real words that only look like a keyword ("interest" is not "internet")
+
+
+def fuzzy_rule_category(text):
+    """Best category whose keyword is a close misspelling of words in the (cleaned) text, or None.
+    A typo keeps the first letter and changes the length by at most 1, so other words are skipped
+    ('phonepe' is NOT a typo of the keyword 'phone'). Multi-word keywords like 'cult fit'
+    are compared with the same number of consecutive words."""
+    tokens = text.split()
+    best_ratio, best_category = 0.0, None
     for category, words in KEYWORD_RULES.items():
         for word in words:
-            if re.search(rf"\b{re.escape(word)}\b", text):
-                return category
-    return None
+            if len(word) < FUZZY_MIN_LENGTH:
+                continue
+            size = len(word.split())
+            for i in range(len(tokens) - size + 1):
+                candidate = " ".join(tokens[i:i + size])
+                if abs(len(candidate) - len(word)) > 1 or candidate[0] != word[0]:
+                    continue
+                if candidate in FUZZY_REAL_WORDS:
+                    continue
+                ratio = SequenceMatcher(None, candidate, word).ratio()
+                if ratio >= FUZZY_MIN_RATIO and ratio > best_ratio:
+                    best_ratio, best_category = ratio, category
+    return best_category
+
+
+# Person-to-person payments (UPI to a friend, family member, ...). No merchant word is involved,
+# so we recognise the PERSON instead. A mobile number starts with 6-9 and has 10 digits.
+PHONE_NUMBER = re.compile(r"(?<![\d*])[6-9]\d{9}(?!\d)")              # 9876543210@ybl, "paid 9876543210"
+MASKED_PHONE_HANDLE = re.compile(r"(?<![\w*])[6-9]\d\*{2,}\d*@")      # 98****@ybl  (how the parser masks it)
+UPI_HANDLE = re.compile(r"([a-z0-9._*-]+)@[a-z]+")                    # the part before the @
+PERSONAL_HANDLE = re.compile(r"[a-z]+(?:[._-][a-z0-9]+)?\d{0,4}")     # rahul / rahul.k / priya_m / amit123
+
+
+def person_transfer(description):
+    """True if the payment looks like money sent to a person, not to a business:
+      - a mobile number as the UPI id or in the text, or
+      - a UPI id like rahul.k@okaxis whose first part is a common first name, or
+      - a common first name (or Mom, Dad, Bhai...) in the text.
+    A business word (Store, Traders, Pharmacy...) in the text cancels all of this."""
+    text = str(description).lower()
+    words = set(clean_text(text).split())
+    if words & BUSINESS_WORDS:
+        return False
+    if PHONE_NUMBER.search(text) or MASKED_PHONE_HANDLE.search(text):
+        return True
+    for handle in UPI_HANDLE.findall(text):
+        if PERSONAL_HANDLE.fullmatch(handle) and re.match(r"[a-z]+", handle).group() in FIRST_NAMES | RELATIONS:
+            return True
+    return bool(words & (FIRST_NAMES | RELATIONS))
+
+
+def rule_category(description, fuzzy=True):
+    """Layer 1. Return the category whose keyword appears in the text, or None if nothing matches.
+    Order: exact keywords (the longest wins), then misspelled keywords (fuzzy), then 'a payment to a person'."""
+    text = clean_text(description)
+    best_length, best_category = 0, None
+    for category, words in KEYWORD_RULES.items():
+        for word in words:
+            # the longest matching keyword is the most specific one ("swiggy instamart" beats "swiggy")
+            if len(word) > best_length and re.search(rf"\b{re.escape(word)}\b", text):
+                best_length, best_category = len(word), category
+    if best_category:
+        return best_category
+    if fuzzy:
+        fuzzy_hit = fuzzy_rule_category(text)
+        if fuzzy_hit:
+            return fuzzy_hit
+    return "Transfers" if person_transfer(description) else None
 
 
 # ---------------------------------------------------------------------------
@@ -129,8 +208,12 @@ def save_corrections(rows, path=CORRECTIONS_PATH):
 
 
 def load_training_frame(path=DATA_PATH, corrections_path=None):
-    """The original training data, plus the user's corrections when a corrections file is given."""
-    df = pd.read_csv(path)[["description", "category"]]
+    """The original training data, plus the user's corrections when a corrections file is given.
+    Credits (salary, refunds) are skipped: they are labelled by credit_label(), never by the model."""
+    df = pd.read_csv(path)
+    if "type" in df.columns:
+        df = df[df["type"] == "debit"]
+    df = df[["description", "category"]]
     if corrections_path and os.path.exists(corrections_path):
         df = pd.concat([df, pd.read_csv(corrections_path)[["description", "category"]]],
                        ignore_index=True)
@@ -273,7 +356,7 @@ def train_and_save(data_path=DATA_PATH, corrections_path=None, model_path=MODEL_
     # clean_accuracy = accuracy on the held-out 20% (this split includes the corrections)
     bundle = {"model": best, "name": best_name, "threshold": CONFIDENCE_THRESHOLD,
               "clean_accuracy": accuracy_score(y_test, best.predict(X_test)),
-              "n_corrections": len(X) - len(pd.read_csv(data_path))}
+              "n_corrections": len(X) - len(load_training_frame(data_path))}
     os.makedirs(os.path.dirname(model_path), exist_ok=True)
     joblib.dump(bundle, model_path)
     print(f"Model saved to {model_path}")
@@ -337,13 +420,24 @@ def categorize_text(description, bundle_or_model=None, corrections=None):
     return ml_category(description, bundle_or_model)
 
 
+def credit_label(description):
+    """Label for money coming IN. No ML here: a credit is 'Refund' if the text says so
+    (refund / reversal / cashback), otherwise 'Income' (salary, interest, anything else).
+    These two labels are only for credits; the 10 spending categories stay unchanged."""
+    text = str(description).lower()
+    return "Refund" if any(word in text for word in ("refund", "reversal", "cashback")) else "Income"
+
+
 def categorize_dataframe(df, column="description", bundle=None, corrections_path=CORRECTIONS_PATH):
     """Add a 'category' column to a parsed statement (the DataFrame from parser.parse_statement).
+    Debits go through corrections + rules + ML; credits get 'Income' / 'Refund' without the model.
     Saved user corrections are applied on top (pass corrections_path=None to ignore them)."""
     bundle = bundle or load_model()
     corrections = load_corrections(corrections_path) if corrections_path else {}
     df = df.copy()
-    df["category"] = [categorize_text(d, bundle, corrections) for d in df[column]]
+    is_credit = df["type"] == "credit" if "type" in df.columns else pd.Series(False, index=df.index)
+    df["category"] = [credit_label(d) if credit else categorize_text(d, bundle, corrections)
+                      for d, credit in zip(df[column], is_credit)]
     return df
 
 

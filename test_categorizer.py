@@ -30,6 +30,24 @@ def test_rule_category():
     assert c.rule_category("UPI/123456789012/Zxqv Traders/zx@ybl") is None
 
 
+def test_fuzzy_rules_fix_typos():
+    # misspelled keywords still hit their rule
+    assert c.rule_category("UPI/123456789012/swigy/swigy@ybl") == "Food"
+    assert c.rule_category("POS 4567XXXXXX1234 BINKIT PUNE") == "Groceries"
+    assert c.rule_category("ECOM PUR/zepo/BANGALORE IN") == "Groceries"
+    assert c.rule_category("POS 4567XXXXXX1234 DEUATHLON PUNE") == "Shopping"
+    assert c.rule_category("cultf it membership") == "Health"          # a two-word keyword
+    # ...but only when asked to: fuzzy=False is the old exact behaviour
+    assert c.rule_category("swigy", fuzzy=False) is None
+
+
+def test_fuzzy_rules_do_not_overreach():
+    assert c.rule_category("Payment from PhonePe") is None            # 'phonepe' is not a typo of 'phone'
+    assert c.rule_category("Interest Paid") is None                    # a real word, not a typo of 'internet'
+    assert c.rule_category("Qwxz Pvt Ltd") is None
+    assert c.rule_category("olx purchase") is None                     # short keywords (ola) are never fuzzy
+
+
 def test_model_file_and_classes():
     bundle = c.load_model()  # trains + saves automatically if models/categorizer.joblib is missing
     assert os.path.exists(c.MODEL_PATH)
@@ -64,8 +82,59 @@ def test_categorize_dataframe():
     assert "category" not in df.columns  # the original DataFrame is left untouched
 
 
-def test_evaluate_unseen_merchants():
+def test_credits_skip_the_model():
+    df = pd.DataFrame({"description": ["Salary - Acme Technologies Nov 2024", "Refund - Amazon", "Interest credit", "Netflix"],
+                       "type": ["credit", "credit", "credit", "debit"]})
+    out = c.categorize_dataframe(df, corrections_path=None)
+    assert list(out["category"]) == ["Income", "Refund", "Income", "Entertainment"]
+    assert c.credit_label("UPI reversal") == "Refund" and c.credit_label("CASHBACK") == "Refund"
+
+
+def test_credits_are_not_training_data():
     df = pd.read_csv(c.DATA_PATH)
+    assert {"Income", "Refund"} <= set(df["category"])                # the file has credits...
+    assert set(c.load_training_frame()["category"]) <= set(c.CATEGORIES)   # ...but training does not
+
+
+def test_person_transfers():
+    for text in ["UPI/412345678901/Rahul Verma/rahul.k@okaxis/Payment from PhonePe",
+                 "UPI/412345678901/9876543210@ybl/Payment",          # mobile number as the UPI id
+                 "UPI-98****@ybl-Paid",                                # the same, masked by the parser
+                 "UPI/412345678901/priya_m@oksbi",                     # a name as the UPI id
+                 "Sent to Mom", "Neha Gupta", "UPI/123456789012/Amit K/am****@paytm"]:
+        assert c.rule_category(text) == "Transfers", text
+
+
+def test_person_rule_does_not_catch_businesses():
+    for text, expected in [("UPI/123456789012/Swiggy/swiggy@ybl", "Food"),             # merchant word wins
+                           ("Vijay Sales Payment", "Shopping"),
+                           ("UPI/123456789012/Rahul Enterprises/rahulent@ybl", None),   # business word
+                           ("UPI/123456789012/Sharma Traders/sharma@icici", None),
+                           ("Interest Paid", None), ("ATM WDL CASH MUMBAI", None)]:
+        assert c.rule_category(text) == expected, text
+    assert c.rule_category("Domino's") == "Food" and c.rule_category("McDonald's") == "Food"   # apostrophes
+    assert c.rule_category("Swiggy Instamart order") == "Groceries"      # the longer keyword wins
+
+
+def test_person_rule_on_training_data():
+    t = c.load_training_frame()
+    wrong = [d for d, cat in zip(t.description, t.category) if c.rule_category(d) == "Transfers" and cat != "Transfers"]
+    assert not wrong, wrong[:5]            # the rule never calls a purchase a transfer
+
+
+def test_new_merchants_are_valid_and_not_in_test_set():
+    from merchants import NEW_MERCHANTS
+    assert set(NEW_MERCHANTS) <= set(c.CATEGORIES)
+    test_text = " ".join(pd.read_csv(c.REALISTIC_PATH)["description"].map(c.clean_text))
+    squashed = test_text.replace(" ", "")
+    for category, names in NEW_MERCHANTS.items():
+        for name in names:
+            assert c.clean_text(name).replace(" ", "") not in squashed, name   # "unseen" must stay unseen
+            assert c.rule_category(name) == category, (name, c.rule_category(name))
+
+
+def test_evaluate_unseen_merchants():
+    df = c.load_training_frame()   # debits only
     X = df["description"].map(c.clean_text)
     results = c.evaluate_unseen_merchants(X, df["category"], df["description"])
     for ml_only, full in results.values():
@@ -180,7 +249,7 @@ def test_generic_labels_ml_only():
 
 
 def test_training_data_is_varied():
-    df = pd.read_csv(c.DATA_PATH)
+    df = c.load_training_frame()   # debit rows only
     assert len(df) > 2000 and set(df["category"]) == set(c.CATEGORIES)
     # the messy TEST merchants must not leak into training (they are what "unseen" means)
     test_only = ["Behrouz", "Faasos", "Lenskart", "Prime Video", "Practo", "Ravi Kumar", "Cleartrip"]

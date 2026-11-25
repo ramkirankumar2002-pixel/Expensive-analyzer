@@ -1,7 +1,9 @@
 # analytics.py - the number-crunching behind the dashboard (no Streamlit in here, so it is easy to test).
 #
-# Golden rule: only DEBITS are spending, only CREDITS are income.
-# Refunds and salary are credits, so they never show up in the category totals or spending charts.
+# Golden rules:
+#   - only DEBITS are spending, only CREDITS are income (salary and refunds are credits)
+#   - debits in the "Transfers" category (money sent to people) are NOT spending: they are shown
+#     separately as "Transfers out" and left out of the category totals and spending charts
 #
 # Input everywhere is the table from parser + categorizer:
 #   date, description, amount (always positive), type ("debit"/"credit"), merchant, category
@@ -29,31 +31,45 @@ def debits(df):
     return df[df["type"] == "debit"]
 
 
+def spending(df):
+    """Real spending: debits except Transfers."""
+    debit_rows = debits(df)
+    return debit_rows[debit_rows["category"] != "Transfers"]
+
+
+def transfers_out(df):
+    """Debits in the Transfers category (money sent to people)."""
+    debit_rows = debits(df)
+    return debit_rows[debit_rows["category"] == "Transfers"]
+
+
 def credits(df):
     """Only the rows where money came in (salary, refunds, ...)."""
     return df[df["type"] == "credit"]
 
 
 def summary(df):
-    """Numbers for the top cards: total spent, income, savings and savings %.
+    """Numbers for the top cards: spent, transfers out, income, savings and savings %.
+    Savings = income - spent (Transfers out are not subtracted; they may be to your own accounts).
     Savings % is None when there is no income (it would be a division by zero)."""
-    spent = debits(df)["amount"].sum()
+    spent = spending(df)["amount"].sum()
+    transfers = transfers_out(df)["amount"].sum()
     income = credits(df)["amount"].sum()
     savings = income - spent
     savings_pct = savings / income * 100 if income > 0 else None
-    return {"spent": spent, "income": income, "savings": savings, "savings_pct": savings_pct}
+    return {"spent": spent, "transfers": transfers, "income": income, "savings": savings, "savings_pct": savings_pct}
 
 
 def category_totals(df):
-    """Spending per category (debits only), biggest first. Columns: category, amount."""
-    out = debits(df).groupby("category", as_index=False)["amount"].sum()
+    """Spending per category (no credits, no Transfers), biggest first. Columns: category, amount."""
+    out = spending(df).groupby("category", as_index=False)["amount"].sum()
     return out.sort_values("amount", ascending=False).reset_index(drop=True)
 
 
 def monthly_spending(df):
-    """Spending per calendar month (debits only), oldest first. Columns: month, amount.
+    """Spending per calendar month (no credits, no Transfers), oldest first. Columns: month, amount.
     'month' is the first day of the month, so the chart sorts correctly across years."""
-    spend = debits(df)
+    spend = spending(df)
     month = spend["date"].dt.to_period("M").dt.to_timestamp()
     out = spend.groupby(month)["amount"].sum()
     out.index.name = "month"
@@ -62,14 +78,14 @@ def monthly_spending(df):
 
 def top_merchants(df, n=5):
     """The n merchants where the most money was spent. Columns: merchant, amount, count."""
-    out = (debits(df).groupby("merchant")["amount"]
+    out = (spending(df).groupby("merchant")["amount"]
            .agg(amount="sum", count="count").reset_index())
     return out.sort_values("amount", ascending=False).head(n).reset_index(drop=True)
 
 
 def biggest_transactions(df, n=5):
-    """The n largest single payments (debits only)."""
-    return debits(df).sort_values("amount", ascending=False).head(n)
+    """The n largest single payments (spending only: no credits, no Transfers)."""
+    return spending(df).sort_values("amount", ascending=False).head(n)
 
 
 def filter_transactions(df, start=None, end=None, categories=None,
