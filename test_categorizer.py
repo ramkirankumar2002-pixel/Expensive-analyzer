@@ -27,7 +27,7 @@ def test_rule_category():
     # whole words only: "current" contains "rent" but must not count as Rent
     assert c.rule_category("Current account fee") is None
     # unknown merchant -> no rule fires, so the ML layer gets a chance
-    assert c.rule_category("UPI/1/Zxqv Traders/zx@ybl") is None
+    assert c.rule_category("UPI/123456789012/Zxqv Traders/zx@ybl") is None
 
 
 def test_model_file_and_classes():
@@ -57,9 +57,9 @@ def test_categorize_text_layers():
 
 
 def test_categorize_dataframe():
-    df = pd.DataFrame({"description": ["UPI/1/Uber/uber@ybl", "NEFT to friend", "Netflix"],
+    df = pd.DataFrame({"description": ["UPI/123456789012/Uber/uber@ybl", "NEFT to friend", "Netflix"],
                        "amount": [200, 500, 649]})
-    out = c.categorize_dataframe(df)
+    out = c.categorize_dataframe(df, corrections_path=None)  # ignore any real corrections.csv
     assert list(out["category"]) == ["Travel", "Transfers", "Entertainment"]
     assert "category" not in df.columns  # the original DataFrame is left untouched
 
@@ -86,6 +86,106 @@ def test_messy_test_set():
     assert accuracy > 0.85, accuracy
     # a typo must still find its category through the character n-grams
     assert c.categorize_text("UPI-SWGGY-swggy@oksbi-325939859950-UPI", bundle) == "Food"
+
+
+def test_save_and_load_corrections():
+    path = _tmp("corr_roundtrip.csv")
+    assert c.load_corrections(path) == {}  # no file yet -> empty
+    c.save_corrections([("UPI/123456789012/Zxqv Traders/zx@ybl", "Shopping")], path)
+    assert c.load_corrections(path) == {"zxqv traders": "Shopping"}
+    # correcting the same description again keeps only the newest answer (one row in the file)
+    c.save_corrections([("UPI/210987654321/Zxqv Traders/zx@ybl", "Food")], path)
+    assert c.load_corrections(path) == {"zxqv traders": "Food"}
+    assert len(pd.read_csv(path)) == 1
+    # only the fixed categories are allowed
+    try:
+        c.save_corrections([("x", "Holidays")], path)
+        assert False, "should have raised"
+    except ValueError:
+        pass
+
+
+def test_correction_beats_rule():
+    bundle = c.load_model()
+    assert c.categorize_text("UPI/123456789012/Uber/uber@ybl", bundle) == "Travel"              # the rule says Travel
+    fixes = {c.clean_text("UPI/123456789012/Uber/uber@ybl"): "Shopping"}
+    assert c.categorize_text("UPI/999999999999/Uber/uber@paytm", bundle, fixes) == "Shopping"  # the correction wins
+
+
+def test_training_includes_corrections():
+    path = _tmp("corr_training.csv")
+    c.save_corrections([("UPI/123456789012/Zxqv Traders/zx@ybl", "Shopping"),
+                        ("UPI/123456789012/Qwxz Pvt Ltd/qw@ybl", "Health")], path)
+    X_plain, _ = c.load_training_data()
+    X_with, y_with = c.load_training_data(corrections_path=path)
+    assert len(X_with) == len(X_plain) + 2
+    assert list(y_with.tail(2)) == ["Shopping", "Health"]
+
+
+def test_retrain_with_corrections():
+    path, model_path = _tmp("corr_retrain.csv"), _tmp("model_retrain.joblib")
+    # one lone row in a category the data has not used before ("Others") must not break training
+    c.save_corrections([("UPI/123456789012/Zxqv Traders/zx@ybl", "Shopping"),
+                        ("UPI/123456789012/Qwxz Pvt Ltd/qw@ybl", "Others")], path)
+    bundle = c.train_and_save(corrections_path=path, model_path=model_path)
+    assert os.path.exists(model_path)
+    assert bundle["n_corrections"] == 2
+    assert 0 <= bundle["clean_accuracy"] <= 1
+    scores = c.messy_scores(bundle)
+    assert 0 <= scores["ml_only"] <= 1 and 0 <= scores["hybrid"] <= 1
+    assert c.messy_accuracy(bundle) == scores["hybrid"]
+    # rules fix what the ML model alone gets wrong, so the hybrid must be at least as good
+    assert scores["hybrid"] >= scores["ml_only"]
+
+
+def _tmp(name):
+    """A fresh temp file path (any old copy is removed) so tests never touch the real corrections/model."""
+    import tempfile
+    path = os.path.join(tempfile.gettempdir(), name)
+    if os.path.exists(path):
+        os.remove(path)
+    return path
+
+
+def test_expenses_workbook_labels():
+    # every label in the user's "Copy of Expenses.xlsx" sheet -> the category it should get
+    expected = {
+        "Food/Drinks": "Food", "Eating/Going Out": "Food", "Grocery": "Groceries",
+        "Transportation": "Travel", "Phone/Internet": "Bills", "Electricity/Water": "Bills",
+        "Garbage": "Bills", "Cable": "Bills", "Bank fees": "Bills", "Pension Fund": "Bills",
+        "SSS": "Bills", "Home": "Bills", "Apartment": "Rent",
+        "Debt repayment": "Transfers", "Credit Card Payment": "Transfers", "Revi Credit": "Transfers",
+        "Clothing/Shoes/Personal Items": "Shopping", "Hair Cut": "Shopping",
+        "Personal care items (drugstore)": "Shopping",
+        "Entertainment/Subscriptions": "Entertainment", "Magazines/Newspapers/Books": "Entertainment",
+        "Health Insurance": "Health", "Healthcare": "Health", "PhilHealth": "Health",
+        "Others": "Others",
+    }
+    bundle = c.load_model()
+    for label, category in expected.items():
+        assert c.categorize_text(label, bundle) == category, (label, c.categorize_text(label, bundle))
+
+
+def test_generic_labels_ml_only():
+    # Short generic labels the ML model has NEVER seen (none is in generate_data.py's GENERIC list).
+    # rule_category is bypassed on purpose: this checks what the model itself learned.
+    model = c.load_model()["model"]
+    unseen = {"Cab Rides": "Travel", "Eating Out Weekend": "Food", "Vegetable Shopping": "Groceries",
+              "Doctor Fees": "Health", "Movie Night": "Entertainment", "Mobile Bill": "Bills"}
+    right = sum(c.ml_category(label, model) == cat for label, cat in unseen.items())
+    assert right >= 4, right
+    # the two labels named in the request are in the training data, so they must be right
+    assert c.ml_category("Transportation", model) == "Travel"
+    assert c.ml_category("Eating Out", model) == "Food"
+
+
+def test_training_data_is_varied():
+    df = pd.read_csv(c.DATA_PATH)
+    assert len(df) > 2000 and set(df["category"]) == set(c.CATEGORIES)
+    # the messy TEST merchants must not leak into training (they are what "unseen" means)
+    test_only = ["Behrouz", "Faasos", "Lenskart", "Prime Video", "Practo", "Ravi Kumar", "Cleartrip"]
+    for name in test_only:
+        assert not df["description"].str.contains(name, case=False).any(), name
 
 
 def test_confusion_matrix_png():

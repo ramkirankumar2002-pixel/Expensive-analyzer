@@ -28,3 +28,6 @@ backend/data/real/
 Thumbs.db
 .vscode/
 .idea/
+
+# Personal data
+corrections.csv

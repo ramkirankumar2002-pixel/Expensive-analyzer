@@ -34,6 +34,7 @@ MODEL_PATH = "models/categorizer.joblib"
 MATRIX_PATH = "models/confusion_matrix.png"                 # messy (realistic) test set
 CLEAN_MATRIX_PATH = "models/confusion_matrix_clean.png"     # clean random split (too easy)
 REALISTIC_PATH = "data/test_realistic.csv"                  # made by make_realistic_test.py
+CORRECTIONS_PATH = "corrections.csv"                        # user fixes from the app: description,category
 
 # If the model's best guess has less than 40% probability, we do not trust it.
 CONFIDENCE_THRESHOLD = 0.40
@@ -44,22 +45,27 @@ CONFIDENCE_THRESHOLD = 0.40
 # Words are matched as whole words, so "rent" will not match "current".
 # ---------------------------------------------------------------------------
 KEYWORD_RULES = {
-    "Transfers": ["p2p", "neft", "imps", "self transfer"],
-    "Rent": ["rent", "landlord"],
+    "Transfers": ["p2p", "neft", "imps", "self transfer",
+                  "debt repayment", "credit card payment", "revi credit"],
+    "Rent": ["rent", "landlord", "apartment"],
     "Food": ["swiggy", "zomato", "dominos", "mcdonalds", "starbucks", "kfc",
-             "pizza", "burger", "restaurant", "cafe", "chai"],
+             "pizza", "burger", "restaurant", "cafe", "chai",
+             "food", "eating"],
     "Groceries": ["blinkit", "bigbasket", "zepto", "dmart", "reliance fresh",
                   "grocery", "supermarket", "instamart"],
     "Travel": ["uber", "ola", "rapido", "irctc", "metro", "makemytrip", "redbus",
-               "flight", "airlines", "railway", "petrol", "fuel"],
+               "flight", "airlines", "railway", "petrol", "fuel", "transportation"],
     "Entertainment": ["bookmyshow", "pvr", "inox", "spotify", "netflix", "hotstar",
-                      "steam", "cinema", "movie", "youtube"],
+                      "steam", "cinema", "movie", "youtube", "entertainment", "subscriptions",
+                      "magazines", "newspapers", "books"],
     "Health": ["pharmacy", "pharmeasy", "1mg", "apollo", "hospital", "clinic",
-               "cult fit", "diagnostics", "medical"],
+               "cult fit", "diagnostics", "medical", "healthcare", "health insurance", "philhealth"],
     "Bills": ["airtel", "jio", "vodafone", "electricity", "bescom", "tata power",
-              "gas", "broadband", "recharge", "insurance", "water bill"],
+              "gas", "broadband", "recharge", "insurance", "water bill",
+              "phone", "internet", "cable", "garbage", "bank fees", "bank fee",
+              "pension fund", "sss", "home"],
     "Shopping": ["amazon", "flipkart", "myntra", "ajio", "decathlon", "croma",
-                 "tanishq", "apple store", "nykaa", "mall"],
+                 "tanishq", "apple store", "nykaa", "mall", "clothing", "personal care", "hair cut"],
 }
 
 
@@ -96,9 +102,44 @@ def make_pipeline(classifier):
     return Pipeline([("tfidf", tfidf), ("clf", classifier)])
 
 
-def load_training_data(path=DATA_PATH):
-    """Read the fake data and return (cleaned texts, categories)."""
+# ---------------------------------------------------------------------------
+# Corrections: categories the user fixed by hand in the app (saved in corrections.csv)
+# ---------------------------------------------------------------------------
+def load_corrections(path=CORRECTIONS_PATH):
+    """Return {cleaned description: category}. Empty dict if the file does not exist yet.
+    If the same description was corrected twice, the latest correction wins."""
+    if not os.path.exists(path):
+        return {}
     df = pd.read_csv(path)
+    return {clean_text(d): c for d, c in zip(df["description"], df["category"])}
+
+
+def save_corrections(rows, path=CORRECTIONS_PATH):
+    """Save corrections. rows = list of (description, category) pairs.
+    The file keeps one row per cleaned description (the newest one), so it never grows with repeats."""
+    for _, category in rows:
+        if category not in CATEGORIES:  # only our fixed categories are allowed
+            raise ValueError(f"'{category}' is not one of the fixed categories")
+    new = pd.DataFrame(rows, columns=["description", "category"])
+    if os.path.exists(path):
+        new = pd.concat([pd.read_csv(path), new], ignore_index=True)
+    new["key"] = new["description"].map(clean_text)
+    new = new.drop_duplicates("key", keep="last").drop(columns="key")  # newest correction wins
+    new.to_csv(path, index=False)
+
+
+def load_training_frame(path=DATA_PATH, corrections_path=None):
+    """The original training data, plus the user's corrections when a corrections file is given."""
+    df = pd.read_csv(path)[["description", "category"]]
+    if corrections_path and os.path.exists(corrections_path):
+        df = pd.concat([df, pd.read_csv(corrections_path)[["description", "category"]]],
+                       ignore_index=True)
+    return df
+
+
+def load_training_data(path=DATA_PATH, corrections_path=None):
+    """Return (cleaned texts, categories) for training (original data + corrections if given)."""
+    df = load_training_frame(path, corrections_path)
     return df["description"].map(clean_text), df["category"]
 
 
@@ -176,13 +217,17 @@ def evaluate_realistic(candidates, path=REALISTIC_PATH):
     return full_predictions, df
 
 
-def train_and_save(data_path=DATA_PATH):
-    """Train both models, compare them, save the best with joblib. Returns the saved bundle (a dict)."""
-    X, y = load_training_data(data_path)
+def train_and_save(data_path=DATA_PATH, corrections_path=None, model_path=MODEL_PATH):
+    """Train both models, compare them, save the best with joblib. Returns the saved bundle (a dict).
+    Pass corrections_path to train on the original data PLUS the user's corrections."""
+    X, y = load_training_data(data_path, corrections_path)
+    raw_descriptions = load_training_frame(data_path, corrections_path)["description"]
     # Hold back 20% of the data the models never see, so the scores are honest.
     # stratify=y keeps the same category mix in both parts.
+    # (stratifying needs at least 2 rows per category; a lone correction in a new category has 1.)
+    can_stratify = y.value_counts().min() >= 2
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y)
+        X, y, test_size=0.2, random_state=42, stratify=y if can_stratify else None)
 
     candidates = {
         "Logistic Regression": make_pipeline(LogisticRegression(C=10, max_iter=1000)),
@@ -218,18 +263,39 @@ def train_and_save(data_path=DATA_PATH):
                           "Confusion matrix - clean test split (ML only)")
 
     # For comparison: the full two-layer system on the clean split.
-    test_descriptions = pd.read_csv(data_path).loc[X_test.index, "description"]
+    test_descriptions = raw_descriptions.loc[X_test.index]
     hybrid_pred = [categorize_text(d, best) for d in test_descriptions]
     print(f"Clean split, full system (rules + ML + Others): accuracy={accuracy_score(y_test, hybrid_pred):.3f}  "
           f"macro-F1={f1_score(y_test, hybrid_pred, average='macro', zero_division=0):.3f}")
 
-    evaluate_unseen_merchants(X, y, pd.read_csv(data_path)["description"])
+    evaluate_unseen_merchants(X, y, raw_descriptions)
 
-    bundle = {"model": best, "name": best_name, "threshold": CONFIDENCE_THRESHOLD}
-    os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
-    joblib.dump(bundle, MODEL_PATH)
-    print(f"Model saved to {MODEL_PATH}")
+    # clean_accuracy = accuracy on the held-out 20% (this split includes the corrections)
+    bundle = {"model": best, "name": best_name, "threshold": CONFIDENCE_THRESHOLD,
+              "clean_accuracy": accuracy_score(y_test, best.predict(X_test)),
+              "n_corrections": len(X) - len(pd.read_csv(data_path))}
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
+    joblib.dump(bundle, model_path)
+    print(f"Model saved to {model_path}")
     return bundle
+
+
+def messy_scores(bundle, path=REALISTIC_PATH):
+    """Accuracy on the fixed messy test set (never used for training, never changes), so the
+    numbers are comparable before and after retraining. Two numbers:
+      ml_only = the ML model alone (with the low-confidence -> Others rule)
+      hybrid  = the real system: keyword rules first, ML only when no rule matches
+    The user-corrections layer is NOT used, so this measures what the model itself learned."""
+    df = pd.read_csv(path)
+    ml = [ml_category(d, bundle["model"], bundle["threshold"]) for d in df["description"]]
+    hybrid = [categorize_text(d, bundle) for d in df["description"]]
+    return {"ml_only": accuracy_score(df["category"], ml),
+            "hybrid": accuracy_score(df["category"], hybrid)}
+
+
+def messy_accuracy(bundle, path=REALISTIC_PATH):
+    """Accuracy of the full hybrid system (rules + ML) on the messy test set."""
+    return messy_scores(bundle, path)["hybrid"]
 
 
 def load_model(path=MODEL_PATH):
@@ -254,8 +320,13 @@ def ml_category(description, model, threshold=CONFIDENCE_THRESHOLD):
     return model.classes_[best]
 
 
-def categorize_text(description, bundle_or_model=None):
-    """Category for ONE description: rules first, then ML, then 'Others'."""
+def categorize_text(description, bundle_or_model=None, corrections=None):
+    """Category for ONE description: user corrections first, then rules, then ML, then 'Others'.
+    corrections = {cleaned description: category} from load_corrections() (optional)."""
+    if corrections:
+        fixed = corrections.get(clean_text(description))
+        if fixed:
+            return fixed
     rule = rule_category(description)
     if rule:
         return rule
@@ -266,11 +337,13 @@ def categorize_text(description, bundle_or_model=None):
     return ml_category(description, bundle_or_model)
 
 
-def categorize_dataframe(df, column="description"):
-    """Add a 'category' column to a parsed statement (the DataFrame from parser.parse_statement)."""
-    bundle = load_model()
+def categorize_dataframe(df, column="description", bundle=None, corrections_path=CORRECTIONS_PATH):
+    """Add a 'category' column to a parsed statement (the DataFrame from parser.parse_statement).
+    Saved user corrections are applied on top (pass corrections_path=None to ignore them)."""
+    bundle = bundle or load_model()
+    corrections = load_corrections(corrections_path) if corrections_path else {}
     df = df.copy()
-    df["category"] = [categorize_text(d, bundle) for d in df[column]]
+    df["category"] = [categorize_text(d, bundle, corrections) for d in df[column]]
     return df
 
 
