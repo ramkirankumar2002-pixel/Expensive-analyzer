@@ -4,6 +4,8 @@
 # Pages (sidebar):  Dashboard  |  Transactions  |  Insights  |  Model
 # The number crunching lives in analytics.py; this file only draws things.
 
+import os
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -26,6 +28,10 @@ if "scores" not in st.session_state:
 st.session_state.setdefault("editor_version", 0)  # bump it to reset the table's pending edits
 
 
+# The built-in fake statement used by the "Try with sample data" button (path relative to this file)
+SAMPLE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "transactions.csv")
+PRIVACY_NOTE = "Files are processed in memory for this session; don't upload real statements to the public demo."
+
 # Credits get these two labels instead of a spending category (see categorizer.credit_label)
 CREDIT_LABELS = ["Income", "Refund"]
 
@@ -44,11 +50,20 @@ page = st.sidebar.radio("Go to", list(PAGE_ICONS), format_func=lambda p: f"{PAGE
 st.sidebar.markdown('<div class="sidebar-spacer"></div>', unsafe_allow_html=True)   # pushes the upload box down
 
 uploaded = st.sidebar.file_uploader("📤 Upload your bank / UPI statement", type=["csv", "xlsx", "xls"])
-if uploaded is not None:
-    file_id = (uploaded.name, uploaded.size)
+st.sidebar.caption("🔒 " + PRIVACY_NOTE)
+if st.sidebar.button("🧪 Try with sample data", help="Loads a fake statement so you can explore the app"):
+    st.session_state.source = "sample"                    # the newest choice (button or upload) wins
+if uploaded is not None and (uploaded.name, uploaded.size) != st.session_state.get("seen_upload"):
+    st.session_state.seen_upload = (uploaded.name, uploaded.size)
+    st.session_state.source = "upload"
+
+# `statement` is what we parse: the sample file's path, or the uploaded file
+statement = SAMPLE_PATH if st.session_state.get("source") == "sample" else uploaded
+if statement is not None:
+    file_id = ("sample",) if statement == SAMPLE_PATH else (uploaded.name, uploaded.size)
     if st.session_state.get("file_id") != file_id:       # a new file: parse it once
         try:
-            st.session_state.parsed = parse_statement(uploaded)
+            st.session_state.parsed = parse_statement(statement)
         except MissingColumnError as error:
             # No column we recognise: let the user say which one holds the description.
             st.sidebar.warning(f"{error}. Pick the column that describes each transaction.")
@@ -57,7 +72,7 @@ if uploaded is not None:
             if chosen is None:
                 st.stop()
             try:
-                st.session_state.parsed = parse_statement(uploaded, description_column=chosen)
+                st.session_state.parsed = parse_statement(statement, description_column=chosen)
             except ValueError as error2:
                 st.sidebar.error(str(error2))
                 st.stop()
@@ -381,13 +396,13 @@ def show_empty_state():
     """Friendly screen shown until a statement is uploaded."""
     st.markdown(
         '<div class="hero"><div class="big">💸</div><h2>Upload a statement to get started</h2>'
-        '<div class="sub">Drop your bank or UPI statement in the sidebar and see where your money goes.</div>'
+        '<div class="sub">Drop your bank or UPI statement in the sidebar, or click <b>Try with sample data</b>.</div>'
         '<div class="steps">'
         '<div class="step"><span class="n">1</span><br>Download your statement as <b>CSV or Excel</b> '
         'from your bank or UPI app.</div>'
         '<div class="step"><span class="n">2</span><br>Drop the file into the <b>upload box</b> in the sidebar.</div>'
         '<div class="step"><span class="n">3</span><br>Explore your <b>dashboard, insights</b> and AI report.</div>'
-        '</div><div class="sub" style="margin-top:22px">🔒 Account numbers and UPI IDs are masked, '
+        '</div><div class="sub" style="margin-top:22px">🔒 ' + PRIVACY_NOTE + ' Account numbers and UPI IDs are masked, '
         'and only totals are ever sent to the AI.</div></div>', unsafe_allow_html=True)
 
 

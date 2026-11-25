@@ -133,6 +133,16 @@ GEMINI_API_KEY=your_key_here
 
 `.env` is git-ignored: never commit it.
 
+## Deploy on Streamlit Community Cloud
+
+1. Push the repo to GitHub (public).
+2. On share.streamlit.io choose **Create app**, pick this repo, branch `master`, main file `app.py` (Python 3.12).
+3. Under **Advanced settings -> Secrets** add `GEMINI_API_KEY = "your_key_here"`. The app reads it from
+   `st.secrets` and falls back to the local `.env` file. Without a key everything works except the AI report.
+4. Visitors can click **Try with sample data**. `corrections.csv` and `budgets.json` start empty on the cloud;
+   they are shared by everyone who uses that one deployment and are lost when the app restarts, which is why the
+   upload screen asks people not to upload real statements.
+
 ## How to run
 
 ```powershell

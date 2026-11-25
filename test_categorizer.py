@@ -261,6 +261,17 @@ def test_confusion_matrix_png():
     assert os.path.getsize(c.MATRIX_PATH) > 1000  # created by training
 
 
+def test_missing_or_empty_corrections_file():
+    import tempfile
+    folder = tempfile.mkdtemp()
+    path = os.path.join(folder, "corrections.csv")
+    assert c.load_corrections(path) == {}                  # file does not exist yet
+    open(path, "w").close()                                # 0-byte file
+    assert c.load_corrections(path) == {}
+    c.save_corrections([("Zomato order", "Food")], path)   # saving into an empty file works too
+    assert list(c.load_corrections(path).values()) == ["Food"]
+
+
 if __name__ == "__main__":
     # run every function whose name starts with "test_"
     for name, func in list(globals().items()):

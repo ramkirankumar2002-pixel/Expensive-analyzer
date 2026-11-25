@@ -98,6 +98,21 @@ def test_generate_report_parses_and_falls_back():
         assert "API key" in str(e) and "fake" not in str(e)
 
 
+def test_api_key_prefers_secrets_then_env():
+    import types
+    rp.load_dotenv = lambda *a, **k: None
+    os.environ["GEMINI_API_KEY"] = "from-env"
+    import streamlit as st
+    real = st.secrets
+    try:
+        st.secrets = {"GEMINI_API_KEY": " from-secrets "}
+        assert rp.get_api_key() == "from-secrets"          # deployed: secrets win (and are stripped)
+        st.secrets = {}                                     # no secret set -> fall back to the environment / .env
+        assert rp.get_api_key() == "from-env"
+    finally:
+        st.secrets = real
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

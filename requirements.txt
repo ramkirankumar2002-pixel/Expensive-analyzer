@@ -1,8 +1,12 @@
-streamlit
-pandas
-scikit-learn
-plotly
-python-dotenv
-google-genai
-openpyxl
-matplotlib
+# Versions tested on Python 3.12. scikit-learn and joblib must match the versions that saved
+# models/categorizer.joblib, or the model may fail to load.
+streamlit==1.67.0
+pandas==3.1.1
+numpy==2.5.5
+scikit-learn==1.9.1
+joblib==1.6.0
+plotly==7.2.0
+matplotlib==3.11.2
+openpyxl==3.1.5
+python-dotenv==1.2.4
+google-genai==3.6.1

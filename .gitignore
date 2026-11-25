@@ -1,5 +1,6 @@
 # Secrets (Gemini API key)
 .env
+.streamlit/secrets.toml
 
 # Python
 venv/

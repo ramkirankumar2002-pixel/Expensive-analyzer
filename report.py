@@ -95,13 +95,26 @@ def _friendly_message(error):
     return "Couldn't get a report from Gemini. Check the server console for the reason, then try again."
 
 
+def get_api_key():
+    """The Gemini key: Streamlit secrets when deployed (Streamlit Cloud), otherwise the local .env file."""
+    try:
+        import streamlit as st
+        key = str(st.secrets.get("GEMINI_API_KEY", "")).strip()     # raises if there is no secrets file
+    except Exception:                                               # running locally without secrets.toml
+        key = ""
+    if key:
+        return key
+    load_dotenv()
+    return os.getenv("GEMINI_API_KEY", "").strip()
+
+
 def generate_report(stats, ask=None):
     """Turn the stats into {'summary': str, 'tips': [str, ...]} using Gemini.
     ask(prompt, api_key) -> text can be swapped out in tests. Raises ReportError with a friendly message."""
-    load_dotenv()
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    api_key = get_api_key()
     if not api_key:
-        raise ReportError("No Gemini API key found. Add GEMINI_API_KEY=your_key to the .env file and restart the app.")
+        raise ReportError("No Gemini API key found. Add GEMINI_API_KEY to the .env file (local) "
+                          "or to the app's Secrets (Streamlit Cloud), then restart the app.")
 
     prompt = (
         "You are a friendly personal finance coach. Below are aggregated spending stats for one month "

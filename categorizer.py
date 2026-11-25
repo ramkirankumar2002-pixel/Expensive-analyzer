@@ -189,7 +189,10 @@ def load_corrections(path=CORRECTIONS_PATH):
     If the same description was corrected twice, the latest correction wins."""
     if not os.path.exists(path):
         return {}
-    df = pd.read_csv(path)
+    try:
+        df = pd.read_csv(path)
+    except pd.errors.EmptyDataError:     # a completely empty file also means "no corrections yet"
+        return {}
     return {clean_text(d): c for d, c in zip(df["description"], df["category"])}
 
 
@@ -200,7 +203,7 @@ def save_corrections(rows, path=CORRECTIONS_PATH):
         if category not in CATEGORIES:  # only our fixed categories are allowed
             raise ValueError(f"'{category}' is not one of the fixed categories")
     new = pd.DataFrame(rows, columns=["description", "category"])
-    if os.path.exists(path):
+    if os.path.exists(path) and os.path.getsize(path) > 0:
         new = pd.concat([pd.read_csv(path), new], ignore_index=True)
     new["key"] = new["description"].map(clean_text)
     new = new.drop_duplicates("key", keep="last").drop(columns="key")  # newest correction wins
