@@ -12,9 +12,11 @@ import analytics as an
 import categorizer as cz
 import insights as ins
 import report as rp
+import theme as th
 from parser import MissingColumnError, parse_statement
 
-st.set_page_config(page_title="Expense Analyzer", page_icon="₹", layout="wide")
+st.set_page_config(page_title="Expense Analyzer", page_icon="💸", layout="wide")
+st.markdown(th.CSS, unsafe_allow_html=True)        # the dark fintech look (see theme.py)
 
 # --- Remember things between reruns (Streamlit re-runs this whole file on every click) -------
 if "bundle" not in st.session_state:
@@ -34,11 +36,14 @@ def categorize(parsed):
 
 
 # --- Sidebar: navigation + upload ------------------------------------------------------------
-st.sidebar.title("Expense Analyzer")
-page = st.sidebar.radio("Go to", ["Dashboard", "Transactions", "Insights", "Model"], label_visibility="collapsed")
-st.sidebar.divider()
+st.sidebar.markdown('<div class="brand"><span class="logo">💸</span><div><div class="name">Expense Analyzer</div>'
+                    '<div class="tag">Know where your money goes</div></div></div>', unsafe_allow_html=True)
+PAGE_ICONS = {"Dashboard": "📊", "Transactions": "🧾", "Insights": "✨", "Model": "🧠"}
+page = st.sidebar.radio("Go to", list(PAGE_ICONS), format_func=lambda p: f"{PAGE_ICONS[p]}  {p}",
+                        label_visibility="collapsed")
+st.sidebar.markdown('<div class="sidebar-spacer"></div>', unsafe_allow_html=True)   # pushes the upload box down
 
-uploaded = st.sidebar.file_uploader("Upload your bank / UPI statement", type=["csv", "xlsx", "xls"])
+uploaded = st.sidebar.file_uploader("📤 Upload your bank / UPI statement", type=["csv", "xlsx", "xls"])
 if uploaded is not None:
     file_id = (uploaded.name, uploaded.size)
     if st.session_state.get("file_id") != file_id:       # a new file: parse it once
@@ -68,16 +73,18 @@ if uploaded is not None:
 # Page 1: Dashboard
 # =================================================================================================
 def show_dashboard(table):
-    st.title("Dashboard")
+    st.title("📊 Dashboard")
 
-    # --- Summary cards: spent / income / savings / savings % ---
+    # --- Summary cards: spent / income / savings / savings %, each with the change vs last month ---
     s = an.summary(table)
+    mom = an.month_over_month(table)
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Total spent", an.inr(s["spent"]))
-    c2.metric("Transfers out", an.inr(s["transfers"]))
-    c3.metric("Income", an.inr(s["income"]))
-    c4.metric("Savings", an.inr(s["savings"]))
-    c5.metric("Savings %", "-" if s["savings_pct"] is None else f"{s['savings_pct']:.1f}%")
+    c1.markdown(th.metric_card("💸", "Total spent", an.inr(s["spent"]), mom["spent"], invert=True), unsafe_allow_html=True)
+    c2.markdown(th.metric_card("🔁", "Transfers out", an.inr(s["transfers"]), mom["transfers"], invert=True), unsafe_allow_html=True)
+    c3.markdown(th.metric_card("💰", "Income", an.inr(s["income"]), mom["income"]), unsafe_allow_html=True)
+    c4.markdown(th.metric_card("🏦", "Savings", an.inr(s["savings"]), mom["savings"]), unsafe_allow_html=True)
+    c5.markdown(th.metric_card("📈", "Savings %", "-" if s["savings_pct"] is None else f"{s['savings_pct']:.1f}%",
+                               mom["savings_pct"], unit=" pts"), unsafe_allow_html=True)
     st.caption("Spending = debits except Transfers (shown separately). Credits (salary, refunds) count as income. "
                "Savings = income - spent.")
 
@@ -86,37 +93,48 @@ def show_dashboard(table):
         return
 
     # --- Category pie + monthly trend, side by side ---
+    st.markdown(th.section("Where your money goes", "Spending by category and month"), unsafe_allow_html=True)
     left, right = st.columns(2)
 
     cats = an.category_totals(table)
+    cats["category"] = th.label_column(cats["category"])      # '🍔 Food' - same emoji and colour everywhere
     cats["label"] = cats["amount"].map(an.inr)               # Indian-format text for the hover box
-    pie = px.pie(cats, names="category", values="amount", hole=0.4, custom_data="label",
-                 title="Spending by category")
-    pie.update_traces(hovertemplate="%{label}: %{customdata[0]} (%{percent})<extra></extra>")
-    left.plotly_chart(pie, width="stretch")
+    pie = px.pie(cats, names="category", values="amount", hole=0.6, custom_data="label",
+                 title="Spending by category", color="category", color_discrete_map=th.COLOR_MAP)
+    pie.update_traces(hovertemplate="%{label}: %{customdata[0]} (%{percent})<extra></extra>",
+                      textinfo="percent", textposition="inside", marker_line_width=0)
+    pie.update_layout(uniformtext_minsize=11, uniformtext_mode="hide")   # hide labels on tiny slices
+    left.plotly_chart(th.style_fig(pie), width="stretch")
 
     months = an.monthly_spending(table)
     months["label"] = months["amount"].map(an.inr)
     months["month_name"] = months["month"].dt.strftime("%b %Y")
     trend = px.bar(months, x="month_name", y="amount", text="label", title="Monthly spending",
-                   labels={"month_name": "Month", "amount": "Spent (₹)"})
-    trend.update_traces(hovertemplate="%{x}: %{text}<extra></extra>", textposition="outside")
-    right.plotly_chart(trend, width="stretch")
+                   labels={"month_name": "Month", "amount": "Spent (₹)"},
+                   color_discrete_sequence=[th.ACCENT])
+    trend.update_traces(hovertemplate="%{x}: %{text}<extra></extra>", textposition="outside",
+                        marker_cornerradius=8)
+    trend.update_yaxes(visible=False)
+    right.plotly_chart(th.style_fig(trend), width="stretch")
 
     # --- Top 5 merchants + biggest 5 transactions, side by side ---
+    st.markdown(th.section("Top spends", "Your favourite merchants and biggest payments"), unsafe_allow_html=True)
     left, right = st.columns(2)
 
     top = an.top_merchants(table, n=5)
     top["label"] = top["amount"].map(an.inr)
     bars = px.bar(top.iloc[::-1], x="amount", y="merchant", orientation="h", text="label",   # reversed: biggest on top
-                  title="Top 5 merchants", labels={"amount": "Spent (₹)", "merchant": ""})
-    bars.update_traces(hovertemplate="%{y}: %{text}<extra></extra>")
-    left.plotly_chart(bars, width="stretch")
+                  title="Top 5 merchants", labels={"amount": "Spent (₹)", "merchant": ""},
+                  color_discrete_sequence=[th.ACCENT])
+    bars.update_traces(hovertemplate="%{y}: %{text}<extra></extra>", marker_cornerradius=8)
+    bars.update_xaxes(visible=False)
+    left.plotly_chart(th.style_fig(bars), width="stretch")
 
-    right.subheader("Biggest 5 transactions")
+    right.markdown("**Biggest 5 transactions**")
     big = an.biggest_transactions(table, n=5)
     right.dataframe(
-        big.assign(date=big["date"].dt.date, amount=big["amount"].map(lambda a: an.inr(a, 2)))
+        big.assign(date=big["date"].dt.date, amount=big["amount"].map(lambda a: an.inr(a, 2)),
+                   category=th.label_column(big["category"]))
         [["date", "merchant", "amount", "category"]],
         hide_index=True, width="stretch",
     )
@@ -126,7 +144,7 @@ def show_dashboard(table):
 # Page 2: Transactions (search, filters, and the category correction editor)
 # =================================================================================================
 def show_transactions(table):
-    st.title("Transactions")
+    st.title("🧾 Transactions")
 
     # --- Filters ---
     search = st.text_input("Search merchant or description", placeholder="e.g. swiggy")
@@ -146,14 +164,16 @@ def show_transactions(table):
     # Totals of what is currently shown (debits and credits kept apart)
     spent, income = an.spending(shown)["amount"].sum(), an.credits(shown)["amount"].sum()
     transfers = an.transfers_out(shown)["amount"].sum()
-    st.caption(f"Showing **{len(shown)}** of {len(table)} transactions  |  "
-               f"Spent {an.inr(spent)}  |  Transfers out {an.inr(transfers)}  |  Income {an.inr(income)}")
+    st.markdown(th.chips([("Showing", f"{len(shown)} of {len(table)}"), ("Spent", an.inr(spent)),
+                          ("Transfers out", an.inr(transfers)), ("Income", an.inr(income))]),
+                unsafe_allow_html=True)
 
     # --- Editable table: change a category with the dropdown ---
     st.caption("Wrong category? Pick the right one in the dropdown, then click 'Save corrections'. "
                "Credits are always Income / Refund and cannot be corrected.")
     view = shown[["date", "merchant", "type", "amount", "category"]].copy()
     view["date"] = view["date"].dt.date                               # date only, no 00:00:00
+    view["category"] = th.label_column(view["category"])              # show '🍔 Food' (mapped back below)
     # The editor key includes the filters: if they change, the editor starts fresh instead of
     # mixing up edits made on a different set of rows.
     filter_key = hash((str(date_range), tuple(categories), min_amount, max_amount, search))
@@ -164,7 +184,7 @@ def show_transactions(table):
             "merchant": "Merchant",
             "type": "Type",
             "amount": st.column_config.NumberColumn("Amount", format="₹%.2f"),   # a real number, so it sorts correctly
-            "category": st.column_config.SelectboxColumn("Category", options=cz.CATEGORIES + CREDIT_LABELS, required=True),
+            "category": st.column_config.SelectboxColumn("Category", options=[th.label(c) for c in cz.CATEGORIES + CREDIT_LABELS], required=True),
         },
         disabled=["date", "merchant", "type", "amount"],              # only the category can be changed
         hide_index=True,
@@ -174,6 +194,7 @@ def show_transactions(table):
 
     # Rows (by their original row number, kept in the index) where the dropdown differs from the prediction
     # Only debits can be corrected, and only to one of the 10 spending categories
+    edited["category"] = edited["category"].map(th.unlabel)           # '🍔 Food' -> 'Food' again
     differs = edited["category"] != shown["category"]
     changed = edited.index[differs & (shown["type"] == "debit") & edited["category"].isin(cz.CATEGORIES)]
     if (differs.sum() - len(changed)) > 0:
@@ -194,7 +215,7 @@ def show_transactions(table):
 # Page 3: Model (retrain with the saved corrections)
 # =================================================================================================
 def show_model():
-    st.title("Model")
+    st.title("🧠 Model")
     n_corrections = len(cz.load_corrections())
     st.write(f"Saved corrections: **{n_corrections}**  |  Current model: **{st.session_state.bundle['name']}**")
 
@@ -217,17 +238,17 @@ def show_model():
     scores = st.session_state.scores
     result = st.session_state.get("retrain_result")
 
-    def delta(key):
-        """'+1.2 pts (was 66.0%)' after a retrain, nothing before one."""
-        if not result:
-            return None
-        return f"{(result['after'][key] - result['before'][key]) * 100:+.1f} pts (was {result['before'][key]:.1%})"
-
     col1, col2, col3 = st.columns(3)
-    col1.metric("Hybrid (rules + ML), messy set", f"{scores['hybrid']:.1%}", delta=delta("hybrid"))
-    col2.metric("ML only, messy set", f"{scores['ml_only']:.1%}", delta=delta("ml_only"))
+
+    def card(col, icon, title, value, key=None):
+        """Model score card; the change after a retrain goes in the small line."""
+        d = None if key is None or not result else (result["after"][key] - result["before"][key]) * 100
+        col.markdown(th.metric_card(icon, title, value, d, unit=" pts", note="since retrain"), unsafe_allow_html=True)
+
+    card(col1, "🎯", "Hybrid (rules + ML), messy set", f"{scores['hybrid']:.1%}", "hybrid")
+    card(col2, "🤖", "ML only, messy set", f"{scores['ml_only']:.1%}", "ml_only")
     if result:
-        col3.metric("Held-out split (incl. corrections)", f"{result['bundle']['clean_accuracy']:.1%}")
+        card(col3, "🧪", "Held-out split (incl. corrections)", f"{result['bundle']['clean_accuracy']:.1%}")
         st.caption(f"Retrained on the original data + {result['bundle']['n_corrections']} correction(s).")
 
 
@@ -238,10 +259,10 @@ STATUS_ICON = {"ok": "🟢", "warning": "🟡", "over": "🔴"}
 
 
 def show_insights(table):
-    st.title("Insights")
+    st.title("✨ Insights")
 
     # --- 1. Unusual spends ---
-    st.subheader("Unusual spends")
+    st.markdown(th.section("Unusual spends"), unsafe_allow_html=True)
     st.caption("An Isolation Forest looks at amount, category and day of week and flags debits that "
                "don't look like the rest.")
     odd = ins.unusual_spends(table)
@@ -249,26 +270,29 @@ def show_insights(table):
         st.info("Nothing unusual found (or too few transactions to tell).")
     else:
         st.dataframe(
-            odd.assign(date=odd["date"].dt.date, amount=odd["amount"].map(an.inr))
+            odd.assign(date=odd["date"].dt.date, amount=odd["amount"].map(an.inr),
+                       category=th.label_column(odd["category"]))
             [["date", "merchant", "category", "amount", "reason"]],
             hide_index=True, width="stretch")
 
     # --- 2. Subscriptions and recurring payments ---
-    st.subheader("Subscriptions and recurring payments")
+    st.markdown(th.section("Subscriptions and recurring payments"), unsafe_allow_html=True)
     st.caption("Same merchant, similar amount, about 30 days apart (at least 3 payments).")
     subs = ins.find_subscriptions(table)
     if subs.empty:
         st.info("No recurring payments found.")
     else:
-        st.markdown(f"**You spend {an.inr(ins.subscription_total(subs))}/month on subscriptions.**")
+        st.markdown(th.chips([("You spend", f"{an.inr(ins.subscription_total(subs))}/month on subscriptions")]),
+                    unsafe_allow_html=True)
         st.dataframe(
             subs.assign(monthly_amount=subs["monthly_amount"].map(an.inr),
-                        last_paid=subs["last_paid"].dt.date, next_due=subs["next_due"].dt.date)
+                        last_paid=subs["last_paid"].dt.date, next_due=subs["next_due"].dt.date,
+                        category=th.label_column(subs["category"]))
             [["merchant", "category", "monthly_amount", "payments", "last_paid", "next_due"]],
             hide_index=True, width="stretch")
 
     # --- 3. Budgets ---
-    st.subheader("Budgets")
+    st.markdown(th.section("Budgets", "Monthly limits per category"), unsafe_allow_html=True)
     budgets = ins.load_budgets()
     spendable = [c for c in cz.CATEGORIES if c != "Transfers"]      # transfers are not spending
     with st.expander("Set monthly budgets (₹, 0 = no budget)"):
@@ -287,9 +311,8 @@ def show_insights(table):
     if not budgets:
         st.info("Set a budget above to track it month by month.")
     for row in ins.budget_status(table, month.to_timestamp(), budgets).itertuples():
-        st.write(f"{STATUS_ICON[row.status]} **{row.category}**: {an.inr(row.spent)} of "
-                 f"{an.inr(row.budget)} ({row.pct:.0f}%)")
-        st.progress(min(row.pct / 100, 1.0))
+        st.markdown(th.budget_row(row.category, an.inr(row.spent), an.inr(row.budget), row.pct, row.status),
+                    unsafe_allow_html=True)
         if row.status == "over":
             st.error(f"{row.category} is over budget by {an.inr(row.spent - row.budget)}.")
         elif row.status == "warning":
@@ -301,7 +324,7 @@ def show_insights(table):
 
 def show_forecast(table):
     """Next month's spending per category, predicted with Linear Regression on past monthly totals."""
-    st.subheader("Spending forecast")
+    st.markdown(th.section("Spending forecast", "Next month, predicted from past trends"), unsafe_allow_html=True)
     history, forecast, dropped_partial = ins.forecast_next_month(table)
     if forecast.empty:
         st.info("Need at least 3 complete months of spending to forecast.")
@@ -314,14 +337,17 @@ def show_forecast(table):
     predicted = forecast.rename(columns={"predicted": "amount"}).assign(label=next_month.strftime("%b %Y") + " (predicted)")
     chart_data = pd.concat([actual[["label", "category", "amount"]], predicted[["label", "category", "amount"]]])
     chart_data["text"] = chart_data["amount"].map(an.inr)
+    chart_data["category"] = th.label_column(chart_data["category"])
     fig = px.bar(chart_data, x="label", y="amount", color="category", custom_data="text",
-                 title="Actual vs predicted spending", labels={"label": "Month", "amount": "Spent (₹)"})
+                 title="Actual vs predicted spending", labels={"label": "Month", "amount": "Spent (₹)"},
+                 color_discrete_map=th.COLOR_MAP)
     fig.update_traces(hovertemplate="%{x}<br>%{fullData.name}: %{customdata[0]}<extra></extra>")
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(th.style_fig(fig, height=420), width="stretch")
 
     # Table: predicted amount per category + a Total row
     total = forecast["predicted"].sum()
-    shown = pd.concat([forecast, pd.DataFrame({"category": ["Total"], "predicted": [total]})])
+    shown = pd.concat([forecast.assign(category=th.label_column(forecast["category"])),
+                       pd.DataFrame({"category": ["Total"], "predicted": [total]})])
     st.dataframe(shown.assign(predicted=shown["predicted"].map(an.inr)).rename(
         columns={"category": "Category", "predicted": f"Predicted for {next_month.strftime('%B %Y')}"}),
         hide_index=True, width="stretch")
@@ -333,7 +359,7 @@ def show_forecast(table):
 
 def show_ai_report(table, month, budgets):
     """Ask Gemini for a short summary and saving tips, sending aggregated stats only."""
-    st.subheader("AI monthly report")
+    st.markdown(th.section("AI monthly report", "A short summary and saving tips from Gemini"), unsafe_allow_html=True)
     st.caption("Only totals, percentages and counts are sent to Gemini: never transaction descriptions or merchant names.")
     key = f"report_{month}"                                   # one saved report per month
     if st.button("Generate AI Report"):
@@ -351,12 +377,25 @@ def show_ai_report(table, month, budgets):
             st.markdown(f"- 💡 {tip}")
 
 
+def show_empty_state():
+    """Friendly screen shown until a statement is uploaded."""
+    st.markdown(
+        '<div class="hero"><div class="big">💸</div><h2>Upload a statement to get started</h2>'
+        '<div class="sub">Drop your bank or UPI statement in the sidebar and see where your money goes.</div>'
+        '<div class="steps">'
+        '<div class="step"><span class="n">1</span><br>Download your statement as <b>CSV or Excel</b> '
+        'from your bank or UPI app.</div>'
+        '<div class="step"><span class="n">2</span><br>Drop the file into the <b>upload box</b> in the sidebar.</div>'
+        '<div class="step"><span class="n">3</span><br>Explore your <b>dashboard, insights</b> and AI report.</div>'
+        '</div><div class="sub" style="margin-top:22px">🔒 Account numbers and UPI IDs are masked, '
+        'and only totals are ever sent to the AI.</div></div>', unsafe_allow_html=True)
+
+
 # --- Route to the chosen page ----------------------------------------------------------------
 if page == "Model":
     show_model()
 elif "table" not in st.session_state:
-    st.title(page)
-    st.info("Upload a bank / UPI statement (CSV or Excel) in the sidebar to get started.")
+    show_empty_state()
 elif page == "Dashboard":
     show_dashboard(st.session_state.table)
 elif page == "Insights":

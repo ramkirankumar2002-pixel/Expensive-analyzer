@@ -151,6 +151,7 @@ python test_categorizer.py
 python test_analytics.py
 python test_insights.py
 python test_report.py
+python test_theme.py
 ```
 
 To rebuild the data and the model from scratch:
@@ -166,6 +167,8 @@ python categorizer.py
 ```
 Expensive analyzer/
 |-- app.py                 Streamlit UI (4 pages)
+|-- theme.py               look and feel: category emojis/colours, CSS, cards, chart styling
+|-- .streamlit/config.toml dark theme (teal accent)
 |-- parser.py              read + clean + mask a statement
 |-- categorizer.py         rules + ML categorizer, training and evaluation
 |-- analytics.py           totals and chart data for the dashboard

@@ -1,0 +1,12 @@
+# Dark fintech theme: one accent colour (teal), clean sans-serif font.
+[theme]
+base = "dark"
+primaryColor = "#2DD4BF"
+backgroundColor = "#0B0F19"
+secondaryBackgroundColor = "#141A2A"
+textColor = "#E6EAF2"
+font = "sans-serif"
+baseRadius = "large"
+
+[client]
+toolbarMode = "minimal"

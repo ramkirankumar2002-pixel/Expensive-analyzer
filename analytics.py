@@ -60,6 +60,24 @@ def summary(df):
     return {"spent": spent, "transfers": transfers, "income": income, "savings": savings, "savings_pct": savings_pct}
 
 
+def month_over_month(df):
+    """How the latest month compares with the month before it (used for the small change on the cards).
+    Returns {spent, transfers, income, savings: % change, savings_pct: change in percentage points}.
+    A value is None when there is only one month, or the earlier month's number is 0 (no % possible)."""
+    months = df["date"].dt.to_period("M")
+    ordered = sorted(months.unique())
+    keys = ["spent", "transfers", "income", "savings", "savings_pct"]
+    if len(ordered) < 2:
+        return {k: None for k in keys}
+    now, before = summary(df[months == ordered[-1]]), summary(df[months == ordered[-2]])
+    out = {}
+    for k in keys[:4]:
+        out[k] = (now[k] - before[k]) / abs(before[k]) * 100 if before[k] else None
+    both = now["savings_pct"] is not None and before["savings_pct"] is not None
+    out["savings_pct"] = now["savings_pct"] - before["savings_pct"] if both else None
+    return out
+
+
 def category_totals(df):
     """Spending per category (no credits, no Transfers), biggest first. Columns: category, amount."""
     out = spending(df).groupby("category", as_index=False)["amount"].sum()

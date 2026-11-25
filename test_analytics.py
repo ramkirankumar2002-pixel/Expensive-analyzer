@@ -90,6 +90,17 @@ def test_filter_transactions():
     assert len(an.filter_transactions(df, categories=["Food"], min_amount=400)) == 1   # filters combine
 
 
+def test_month_over_month():
+    df = sample()
+    mom = an.month_over_month(df)                      # June vs May
+    # May: spent 10300 (rent + swiggy), income 50700 ; June: spent 1000 (DMart), income 0
+    assert abs(mom["spent"] - (1000 - 10300) / 10300 * 100) < 1e-9
+    assert abs(mom["income"] - (-100.0)) < 1e-9
+    assert mom["savings_pct"] is None                  # June has no income, so no savings %
+    one_month = df[df["date"] >= "2026-06-01"]
+    assert all(v is None for v in an.month_over_month(one_month).values())
+
+
 if __name__ == "__main__":
     for name, func in list(globals().items()):
         if name.startswith("test_"):
