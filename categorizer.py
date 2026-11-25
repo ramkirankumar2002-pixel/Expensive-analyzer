@@ -431,12 +431,15 @@ def credit_label(description):
     return "Refund" if any(word in text for word in ("refund", "reversal", "cashback")) else "Income"
 
 
-def categorize_dataframe(df, column="description", bundle=None, corrections_path=CORRECTIONS_PATH):
+def categorize_dataframe(df, column="description", bundle=None, corrections_path=CORRECTIONS_PATH, corrections=None):
     """Add a 'category' column to a parsed statement (the DataFrame from parser.parse_statement).
     Debits go through corrections + rules + ML; credits get 'Income' / 'Refund' without the model.
-    Saved user corrections are applied on top (pass corrections_path=None to ignore them)."""
+    Saved user corrections are applied on top (pass corrections_path=None to ignore them).
+    `corrections` = a ready {cleaned description: category} dict (the public demo keeps these in the session
+    instead of a file); when given, the file is not read."""
     bundle = bundle or load_model()
-    corrections = load_corrections(corrections_path) if corrections_path else {}
+    if corrections is None:
+        corrections = load_corrections(corrections_path) if corrections_path else {}
     df = df.copy()
     is_credit = df["type"] == "credit" if "type" in df.columns else pd.Series(False, index=df.index)
     df["category"] = [credit_label(d) if credit else categorize_text(d, bundle, corrections)

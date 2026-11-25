@@ -36,9 +36,52 @@ PRIVACY_NOTE = "Files are processed in memory for this session; don't upload rea
 CREDIT_LABELS = ["Income", "Refund"]
 
 
+def is_public_demo():
+    """True on Streamlit Community Cloud (the app lives under /mount/src there) or when PUBLIC_DEMO=1 is set
+    (a top-level Streamlit secret also becomes an environment variable). Locally this is False."""
+    on_cloud = os.path.abspath(__file__).replace("\\", "/").startswith("/mount/src")
+    return on_cloud or os.environ.get("PUBLIC_DEMO", "").lower() in ("1", "true", "yes")
+
+
+PUBLIC_DEMO = is_public_demo()
+
+
+# In the public demo every visitor gets their OWN corrections and budgets, kept in st.session_state
+# (gone when the tab closes). Locally they are saved in corrections.csv / budgets.json as before.
+def current_corrections():
+    """{cleaned description: category} the user has saved."""
+    if PUBLIC_DEMO:
+        return st.session_state.setdefault("corrections", {})
+    return cz.load_corrections()
+
+
+def save_correction_rows(rows):
+    """rows = [(description, category), ...]"""
+    if not PUBLIC_DEMO:
+        cz.save_corrections(rows)
+        return
+    for _, category in rows:
+        if category not in cz.CATEGORIES:
+            raise ValueError(f"'{category}' is not one of the fixed categories")
+    current_corrections().update({cz.clean_text(d): c for d, c in rows})
+
+
+def current_budgets():
+    if PUBLIC_DEMO:
+        return st.session_state.get("budgets", {})
+    return ins.load_budgets()
+
+
+def save_current_budgets(new):
+    if PUBLIC_DEMO:
+        st.session_state.budgets = {k: float(v) for k, v in new.items() if float(v) > 0}
+    else:
+        ins.save_budgets(new)
+
+
 def categorize(parsed):
     """Rules + ML + the user's saved corrections for every row of the parsed statement."""
-    return cz.categorize_dataframe(parsed, bundle=st.session_state.bundle)
+    return cz.categorize_dataframe(parsed, bundle=st.session_state.bundle, corrections=current_corrections())
 
 
 # --- Sidebar: navigation + upload ------------------------------------------------------------
@@ -218,11 +261,11 @@ def show_transactions(table):
         # Save the masked description (not the merchant) because that is what the model trains on
         rows = [(st.session_state.parsed.at[i, "description"], edited.at[i, "category"])
                 for i in changed]
-        cz.save_corrections(rows)
+        save_correction_rows(rows)
         # Re-categorize: other rows with the same merchant pick up the correction too
         st.session_state.table = categorize(st.session_state.parsed)
         st.session_state.editor_version += 1
-        st.toast(f"Saved {len(rows)} correction(s) to {cz.CORRECTIONS_PATH}.")  # survives the rerun
+        st.toast(f"Saved {len(rows)} correction(s) " + ("for this session." if PUBLIC_DEMO else f"to {cz.CORRECTIONS_PATH}."))  # survives the rerun
         st.rerun()
 
 
@@ -231,11 +274,14 @@ def show_transactions(table):
 # =================================================================================================
 def show_model():
     st.title("🧠 Model")
-    n_corrections = len(cz.load_corrections())
+    n_corrections = len(current_corrections())
     st.write(f"Saved corrections: **{n_corrections}**  |  Current model: **{st.session_state.bundle['name']}**")
 
-    if st.button("Retrain model", disabled=n_corrections == 0,
-                 help="Save at least one correction first." if n_corrections == 0 else None):
+    if PUBLIC_DEMO:
+        st.info("Retraining is disabled in the public demo")
+    if st.button("Retrain model", disabled=PUBLIC_DEMO or n_corrections == 0,
+                 help="Retraining is disabled in the public demo" if PUBLIC_DEMO
+                 else "Save at least one correction first." if n_corrections == 0 else None):
         with st.spinner("Retraining... this takes a few seconds"):
             before = st.session_state.scores                      # accuracy of the old model
             new_bundle = cz.train_and_save(corrections_path=cz.CORRECTIONS_PATH)
@@ -308,7 +354,7 @@ def show_insights(table):
 
     # --- 3. Budgets ---
     st.markdown(th.section("Budgets", "Monthly limits per category"), unsafe_allow_html=True)
-    budgets = ins.load_budgets()
+    budgets = current_budgets()
     spendable = [c for c in cz.CATEGORIES if c != "Transfers"]      # transfers are not spending
     with st.expander("Set monthly budgets (₹, 0 = no budget)"):
         cols = st.columns(3)
@@ -316,8 +362,8 @@ def show_insights(table):
                                            key=f"budget_{c}")
                for i, c in enumerate(spendable)}
         if st.button("Save budgets"):
-            ins.save_budgets(new)
-            st.toast(f"Saved budgets to {ins.BUDGETS_PATH}.")
+            save_current_budgets(new)
+            st.toast("Saved budgets for this session." if PUBLIC_DEMO else f"Saved budgets to {ins.BUDGETS_PATH}.")
             st.rerun()
 
     months = sorted(table["date"].dt.to_period("M").unique(), reverse=True)     # newest first

@@ -272,6 +272,13 @@ def test_missing_or_empty_corrections_file():
     assert list(c.load_corrections(path).values()) == ["Food"]
 
 
+def test_categorize_dataframe_accepts_a_corrections_dict():
+    df = pd.DataFrame({"description": ["Mystery Shop 77"], "type": ["debit"]})
+    key = c.clean_text("Mystery Shop 77")
+    out = c.categorize_dataframe(df, corrections={key: "Health"}, corrections_path="does-not-exist.csv")
+    assert out.at[0, "category"] == "Health"           # the dict is used, the (missing) file is never read
+
+
 if __name__ == "__main__":
     # run every function whose name starts with "test_"
     for name, func in list(globals().items()):

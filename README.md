@@ -139,9 +139,10 @@ GEMINI_API_KEY=your_key_here
 2. On share.streamlit.io choose **Create app**, pick this repo, branch `master`, main file `app.py` (Python 3.12).
 3. Under **Advanced settings -> Secrets** add `GEMINI_API_KEY = "your_key_here"`. The app reads it from
    `st.secrets` and falls back to the local `.env` file. Without a key everything works except the AI report.
-4. Visitors can click **Try with sample data**. `corrections.csv` and `budgets.json` start empty on the cloud;
-   they are shared by everyone who uses that one deployment and are lost when the app restarts, which is why the
-   upload screen asks people not to upload real statements.
+4. Visitors can click **Try with sample data**. On the cloud the app runs in public-demo mode (detected
+   automatically, or set `PUBLIC_DEMO = "1"`): each visitor's corrections and budgets live only in their own
+   session (`st.session_state`) and disappear when the tab closes, nothing is written to `corrections.csv` or
+   `budgets.json`, and **Retrain model** is disabled. Locally the app behaves as before.
 
 ## How to run
 
