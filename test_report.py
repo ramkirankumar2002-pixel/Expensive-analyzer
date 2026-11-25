@@ -78,6 +78,25 @@ def test_generate_report_parses_and_falls_back():
     except rp.ReportError as e:
         assert "secret" not in str(e)
 
+    # a temporary error (503) is retried once and then succeeds
+    rp.time.sleep = lambda s: None
+    calls = []
+
+    def flaky(prompt, key):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("503 UNAVAILABLE model overloaded")
+        return json.dumps({"summary": "Second try worked.", "tips": []})
+    assert rp.generate_report({}, ask=flaky)["summary"] == "Second try worked." and len(calls) == 2
+
+    # a bad key is reported as a bad key, not as "no internet"
+    def bad_key(prompt, key):
+        raise RuntimeError("403 API key not valid " + key)
+    try:
+        rp.generate_report({}, ask=bad_key)
+    except rp.ReportError as e:
+        assert "API key" in str(e) and "fake" not in str(e)
+
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):

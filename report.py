@@ -6,6 +6,8 @@
 
 import json
 import os
+import sys
+import time
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -72,6 +74,27 @@ def _ask_gemini(prompt, api_key):
     return response.text
 
 
+def _is_temporary(error):
+    """True for errors that usually go away on a retry: timeouts, overload (503), rate limit (429), network drops."""
+    text = f"{type(error).__name__} {error}".lower()
+    return any(w in text for w in ("timeout", "timed out", "503", "429", "500", "unavailable",
+                                   "overloaded", "connect", "resource_exhausted"))
+
+
+def _friendly_message(error):
+    """Turn a Gemini/network error into a short message that says what to fix. Never includes raw details."""
+    text = f"{type(error).__name__} {error}".lower()
+    if any(w in text for w in ("api key", "api_key", "401", "403", "permission", "unauthenticated")):
+        return "Gemini rejected the API key. Check GEMINI_API_KEY in the .env file and restart the app."
+    if any(w in text for w in ("404", "not found", "not_found")):
+        return f"The Gemini model '{MODEL_NAME}' was not found. Change MODEL_NAME at the top of report.py."
+    if any(w in text for w in ("429", "quota", "resource_exhausted")):
+        return "Gemini's free quota or rate limit was reached. Wait a minute and try again."
+    if _is_temporary(error):
+        return "Gemini is busy or the connection timed out. Check your internet and try again in a moment."
+    return "Couldn't get a report from Gemini. Check the server console for the reason, then try again."
+
+
 def generate_report(stats, ask=None):
     """Turn the stats into {'summary': str, 'tips': [str, ...]} using Gemini.
     ask(prompt, api_key) -> text can be swapped out in tests. Raises ReportError with a friendly message."""
@@ -86,10 +109,20 @@ def generate_report(stats, ask=None):
         '{"summary": "2-3 sentences on how the month went", "tips": ["3 to 4 short, personal saving tips"]}. '
         "Mention specific numbers and categories from the stats.\n\n" + json.dumps(stats, ensure_ascii=False)
     )
+    ask = ask or _ask_gemini
     try:
-        text = (ask or _ask_gemini)(prompt, api_key)
-    except Exception:                                   # network down, bad key, quota... all look the same to the user
-        raise ReportError("Couldn't reach Gemini right now. Check your API key and internet connection, then try again.")
+        try:
+            text = ask(prompt, api_key)
+        except Exception as error:
+            if not _is_temporary(error):
+                raise
+            time.sleep(2)                               # busy/slow server: wait a moment and try once more
+            text = ask(prompt, api_key)
+    except Exception as error:
+        # Print the REAL cause in the server console (key removed) so it can be debugged
+        print(f"[report] Gemini call failed: {type(error).__name__}: {str(error).replace(api_key, '<key>')[:300]}",
+              file=sys.stderr)
+        raise ReportError(_friendly_message(error))
 
     try:
         data = json.loads(text)
