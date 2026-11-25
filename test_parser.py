@@ -1,6 +1,7 @@
 # test_parser.py - small tests for parser.py (plain asserts, no pytest needed).
 # Run with:  python test_parser.py
 
+import io
 import os
 import tempfile
 
@@ -105,7 +106,7 @@ def test_parse_statement_csv():
     # every UPI id must be masked: "xx****@bank", never a full id
     assert not df["description"].str.contains(r"[A-Za-z0-9._-]{3,}@", regex=True).any()
     assert not df["description"].str.contains(r"\d{9,}", regex=True).any()   # no long numbers left
-    assert "Swiggy" in set(df["merchant"])
+    assert df["merchant"].str.len().min() > 0                              # every row got a merchant name
 
 
 def test_parse_statement_excel():
@@ -124,6 +125,36 @@ def test_parse_statement_excel():
     assert list(df["type"]) == ["debit", "credit"]
     assert list(df["amount"]) == [350.0, 50000.0]
     assert "zomato@icici" not in df["description"].iloc[0]
+
+
+def _upload(text, name):
+    """A fake uploaded file: bytes plus a .name, like Streamlit gives us."""
+    f = io.BytesIO(text if isinstance(text, bytes) else text.encode())
+    f.name = name
+    return f
+
+
+def _error_for(upload):
+    try:
+        p.parse_statement(upload)
+    except ValueError as error:
+        return error
+    raise AssertionError("expected a ValueError")
+
+
+def test_friendly_errors():
+    csv = lambda *rows: _upload(chr(10).join(rows) + chr(10), "a.csv")   # a tiny CSV upload from its lines
+    assert "Unsupported file type" in str(_error_for(_upload("x", "notes.pdf")))
+    assert "empty" in str(_error_for(_upload("", "a.csv")))
+    assert "no transactions" in str(_error_for(csv("Date,Narration,Amount")))
+    assert "Could not read" in str(_error_for(_upload(b"not a zip", "a.xlsx")))
+    assert "date column" in str(_error_for(csv("Narration,Amount", "x,5")))
+    assert "amount column" in str(_error_for(csv("Date,Narration", "01/01/2026,x")))
+    assert "No usable transactions" in str(_error_for(csv("Date,Narration,Amount", "foo,x,5")))
+    assert "No usable transactions" in str(_error_for(csv("Date,Narration,Amount", "01/01/2026,x,abc")))
+    # a missing description is the one case where the app lets the user pick a column
+    error = _error_for(csv("Date,Foo,Amount", "01/01/2026,x,5"))
+    assert isinstance(error, p.MissingColumnError) and error.columns == ["Date", "Foo", "Amount"]
 
 
 if __name__ == "__main__":

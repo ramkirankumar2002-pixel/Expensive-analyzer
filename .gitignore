@@ -1,36 +1,26 @@
-# Secrets
+# Secrets (Gemini API key)
 .env
 
 # Python
-__pycache__/
-*.py[cod]
-*.egg-info/
 venv/
 .venv/
+__pycache__/
+*.py[cod]
 .pytest_cache/
-.mypy_cache/
-.ipynb_checkpoints/
-build/
-dist/
 
-# Node
-node_modules/
-npm-debug.log*
-.vite/
-frontend/dist/
+# Personal data: never commit these
+# categories the user corrected (contains transaction text)
+corrections.csv
+# the user's monthly budgets
+budgets.json
+# real statements go here
+data/real/
+*.xlsx
+*.xls
 
-# Data
-*.db
-backend/data/real/
-
-# OS / editor
-.DS_Store
-Thumbs.db
+# Editor / OS / tooling
+.claude/
 .vscode/
 .idea/
-
-# Personal data
-corrections.csv
-
-# Personal data
-budgets.json
+.DS_Store
+Thumbs.db

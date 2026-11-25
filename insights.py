@@ -7,7 +7,6 @@
 # Input is the same table as analytics.py: date, description, amount (positive), type, merchant, category
 
 import json
-import os
 
 import numpy as np
 import pandas as pd

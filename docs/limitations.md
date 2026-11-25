@@ -1,20 +1,20 @@
 # Limitations of the categorizer
 
-Numbers below come from the final model (Logistic Regression, trained on 2,398 rows) and the fixed
+Numbers below come from the final model (Logistic Regression, trained on about 4,000 rows) and the fixed
 messy test set `data/test_realistic.csv` (436 rows). Re-run `python categorizer.py` to refresh them.
 
 ## 1. What the accuracy numbers mean
 
 | Measure | Result | What it tells us |
 |---|---|---|
-| Held-out 20% split of the training data | about 100% | Only shows the pipeline works. |
-| Messy test set, hybrid (rules + ML) | 68.6% | The realistic number. |
-| Messy test set, ML only | 62.4% | What the model itself learned. |
+| Held-out 20% split of the training data | about 99% | Only shows the pipeline works. |
+| Messy test set, hybrid (rules + ML) | 75.0% | The realistic number. |
+| Messy test set, ML only | 65.6% | What the model itself learned. |
 
 - **The held-out score is not evidence of generalization.** The training data is generated from
   templates (`generate_data.py`), so test rows look like training rows.
 - **The messy test set is the real measure, but it is not fully independent.** I wrote it myself, and
-  it was also used to pick the winning model (Logistic Regression over Naive Bayes), so the 68.6% is
+  it was also used to pick the winning model (Logistic Regression over Naive Bayes), so the 75.0% is
   slightly optimistic. A set of real, unseen statements would be a fairer test.
 - **The messy set was kept unseen.** Its merchants and narration styles are not in the training data
   (checked by `test_training_data_is_varied`). That stays true only if nobody copies them in later.
@@ -24,18 +24,18 @@ messy test set `data/test_realistic.csv` (436 rows). Re-run `python categorizer.
 
 ## 2. Known weaknesses of the ML model
 
-- **New merchants are mostly missed.** On unseen merchants the ML model alone scores about 29%, and
-  the hybrid about 37%.
+- **New merchants are mostly missed.** On unseen merchants the ML model alone scores about 37%, and
+  the hybrid about 42%.
 - **New people are not recognised.** Transfers to people whose names are not in the training data
   score 0% from the ML model alone. It cannot tell a new name from a new merchant. The keyword rules
-  ("imps", "neft", "p2p") rescue some of them: the hybrid reaches 46% on this group.
+  ("imps", "neft", "p2p") and the name-spotting helper rescue most of them: the hybrid reaches 92% on this group.
 - **Too many rows fall back to "Others".** When the best guess has less than 40% probability
   (`CONFIDENCE_THRESHOLD`), the answer becomes "Others". This is a safe default, but "Others" has
-  only 13% precision on the messy set: most rows labelled Others are really something else.
+  only 16% precision on the messy set: most rows labelled Others are really something else.
   Lowering the threshold would fix some of them and wrongly categorize others.
-- **Short generic labels are only partly learned.** On labels from my own Excel sheet that the model
-  never saw, the ML model alone is right for 9 of 23. It misses "Pension Fund", "SSS",
-  "Healthcare" and "Cable", so the keyword rules carry those.
+- **Short generic labels are only partly learned.** On the 25 labels from my own Excel sheet, the
+  ML model alone is right for 15. It misses "Pension Fund", "SSS", "Cable", "Bank fees" and
+  "Debt repayment", so the keyword rules carry those.
 
 ## 3. Limits of the keyword rules
 

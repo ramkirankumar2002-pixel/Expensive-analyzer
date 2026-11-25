@@ -51,11 +51,17 @@ def read_statement(file):
     if hasattr(file, "seek"):
         file.seek(0)  # an upload may already have been read once (e.g. before the user picked a column)
 
-    if extension == ".csv":
-        return pd.read_csv(file)
-    if extension in (".xlsx", ".xls"):
-        return pd.read_excel(file)
-    raise ValueError(f"Unsupported file type '{extension}'. Please upload a CSV or Excel file.")
+    if extension not in (".csv", ".xlsx", ".xls"):
+        raise ValueError(f"Unsupported file type '{extension or 'unknown'}'. Please upload a CSV or Excel file.")
+    try:
+        df = pd.read_csv(file) if extension == ".csv" else pd.read_excel(file)
+    except pd.errors.EmptyDataError:
+        raise ValueError("The file is empty. Please upload a statement that has a header row and transactions.")
+    except Exception:   # corrupt Excel, binary junk saved as .csv, wrong password, ...
+        raise ValueError("Could not read this file. Make sure it is a real CSV or Excel statement and not damaged.")
+    if df.empty:
+        raise ValueError("The file has no transactions in it (only a header or nothing at all).")
+    return df
 
 
 class MissingColumnError(ValueError):
@@ -125,7 +131,7 @@ def build_amount_and_type(df):
         df["amount"] = amount.abs()
 
     else:
-        raise ValueError("Could not find an amount (or debit/credit) column in the statement.")
+        raise ValueError("Could not find an amount column. The file needs 'Amount', or 'Debit' and 'Credit' columns.")
 
     return df
 
@@ -211,19 +217,24 @@ def extract_merchant(description):
 def parse_statement(file, description_column=None):
     """Read a statement and return a clean DataFrame:
     date, description (masked), amount, type, merchant  (+ category if present).
-    If no description-like column is found, raises MissingColumnError (with the column list);
+    If no description-like column is found, raises MissingColumnError;
+    other problems (empty file, no date/amount column, nothing readable) raise ValueError with a friendly message (with the column list);
     call again with description_column=<the column the user chose>."""
     df = read_statement(file)
     original_columns = list(df.columns)
     df = rename_columns(df, description_column)
 
-    missing = [c for c in ("date", "description") if c not in df.columns]
-    if missing:
-        raise MissingColumnError(
-            f"Statement is missing required column(s): {', '.join(missing)}", original_columns)
+    if "date" not in df.columns:
+        raise ValueError("Could not find a date column. Expected a header like 'Date', 'Txn Date' or 'Value Date'.")
+    if "description" not in df.columns:
+        raise MissingColumnError("Could not find a description column", original_columns)
 
     df = build_amount_and_type(df)
     df = convert_dates(df)
+    df = df.dropna(subset=["amount"])          # rows whose amount is not a number are unusable
+    if df.empty:
+        raise ValueError("No usable transactions found: every row has an unreadable date or amount. "
+                         "Dates should look like 25/11/2026 or 2026-11-25.")
 
     # Extract the merchant FIRST (needs the raw text), then mask the description
     df["merchant"] = df["description"].apply(extract_merchant).apply(mask_sensitive)
