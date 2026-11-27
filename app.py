@@ -19,6 +19,7 @@ import insights as ins
 import merger as mg
 import report as rp
 import theme as th
+import tts
 from parser import MissingColumnError, parse_statement
 
 st.set_page_config(page_title="Expense Analyzer", page_icon="💸", layout="wide")
@@ -531,6 +532,7 @@ def show_ai_report(table, month, budgets):
     # One saved report per month AND language: switching back to one you already made needs no new Gemini call
     key = rp.report_cache_key(month, language)
     if button_column.button("Generate AI Report"):
+        st.session_state.pop(tts.audio_cache_key(month, language), None)    # old audio would not match new text
         stats = rp.build_report_stats(table, month.to_timestamp(), budgets, goals if include_goals else None)
         with st.spinner("Asking Gemini..."):
             try:
@@ -543,7 +545,27 @@ def show_ai_report(table, month, budgets):
         st.write(result["summary"])
         for tip in result["tips"]:
             st.markdown(f"- 💡 {tip}")
+        show_listen(result, month, language)
     return language                                           # the download uses the same language
+
+
+def show_listen(report, month, language):
+    """'Listen to report': Gemini reads the summary and tips aloud. Logic lives in tts.py."""
+    key = tts.audio_cache_key(month, language)                # saved audio: one for each month and language
+    clicked = st.button("🔊 Listen to report")
+    st.caption("Listen sends only the report text above to Gemini.")
+    if clicked and key not in st.session_state:               # already made? then no new call
+        with st.spinner("Creating the audio..."):
+            try:
+                st.session_state[key] = tts.generate_audio(report, language)
+            except tts.TTSError as error:
+                st.error(str(error))                          # the text report above stays on the page
+    if key in st.session_state:
+        wav = st.session_state[key]["wav"]
+        st.audio(wav, format="audio/wav", autoplay=clicked)
+        st.download_button("Download audio (.wav)", wav,
+                           file_name=tts.audio_filename(month.to_timestamp(), language),
+                           mime="audio/wav", on_click="ignore")
 
 
 def show_download(table, month, budgets, language):

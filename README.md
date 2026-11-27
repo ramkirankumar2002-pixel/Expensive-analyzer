@@ -40,6 +40,10 @@ and a plain-English summary, without sending any personal transaction text to an
 - **Insights page:** unusual spends (Isolation Forest), subscriptions and recurring payments,
   monthly budgets with warnings, next-month spending forecast (Linear Regression) and an AI monthly
   report in English, Hindi or Hinglish (kept per month and language while the app is open).
+- **Listen to report:** Gemini text-to-speech reads the summary and tips aloud in English (Indian),
+  Hindi or Hinglish, with a WAV download. Only the report text is sent. The audio is kept per month and
+  language while the app is open, and it is not part of the HTML report. On Gemini's free tier, Google
+  may use what is sent to improve its products.
 - **Download monthly report** (Insights page): one self-contained HTML file for the chosen month
   (`expense-report-YYYY-MM.html`) with inline CSS and the Plotly chart inside, made for printing (Ctrl+P):
   summary cards, categories, top merchants, unusual spends, subscriptions, budgets, goals, forecast, the
@@ -64,7 +68,7 @@ and a plain-English summary, without sending any personal transaction text to an
 | Data | Pandas, openpyxl (Excel) |
 | ML | Scikit-learn (TF-IDF, Logistic Regression, Naive Bayes, Isolation Forest, Linear Regression) |
 | Charts | Plotly (dashboard), Matplotlib (confusion matrix images) |
-| LLM | Google Gemini API (`google-genai`) |
+| LLM | Google Gemini API (`google-genai`): text report and text-to-speech |
 | Config | python-dotenv (`.env` file) |
 
 ## Architecture
@@ -184,6 +188,7 @@ python test_categorizer.py
 python test_analytics.py
 python test_insights.py
 python test_report.py
+python test_tts.py
 python test_goals.py
 python test_export.py
 python test_theme.py
@@ -211,6 +216,7 @@ Expensive analyzer/
 |-- insights.py            unusual spends, subscriptions, budgets, forecast
 |-- goals.py               savings goals: status, reach date, suggested cuts
 |-- report.py              builds aggregated stats and calls Gemini
+|-- tts.py                 reads the AI report aloud (Gemini text-to-speech)
 |-- export.py              the downloadable monthly HTML report
 |-- merchants.py           extra merchant names (training data + rules)
 |-- people.py              first names / business words to spot person transfers
