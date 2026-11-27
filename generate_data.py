@@ -68,6 +68,33 @@ UNUSUAL = [
     (date(2026, 10, 5), "Apple Store - iPhone", 48000, "Shopping"),
     (date(2026, 10, 27), "Goa Resort Booking", 20000, "Travel"),
 ]
+# The dates above are the ones in training.csv (the ML model only reads the text, not the date).
+# In the demo statement the same spends happen earlier, at most one a month, so that its last
+# 3 months (Aug-Oct 2026) show normal savings and the Goals page has something sensible to work with.
+DEMO_UNUSUAL_DATES = {
+    "Fortis Hospital": date(2025, 10, 9),
+    "Tanishq Jewellers": date(2025, 11, 18),
+    "MakeMyTrip - Flight Tickets": date(2025, 12, 22),
+    "Goa Resort Booking": date(2026, 1, 27),
+    "Croma Electronics - Laptop": date(2026, 2, 14),
+    "Apple Store - iPhone": date(2026, 5, 5),
+}
+
+# Demo statement only: some ordinary extra purchases in the last 3 months (festival season),
+# so savings there are about Rs 12,000 a month. Each amount is normal for its category.
+DEMO_RECENT = [
+    (date(2026, 8, 6), "Myntra", 2349.0, "Shopping"),
+    (date(2026, 8, 12), "BigBasket", 1865.0, "Groceries"),
+    (date(2026, 8, 21), "Amazon", 2899.0, "Shopping"),
+    (date(2026, 8, 28), "Swiggy", 486.0, "Food"),
+    (date(2026, 9, 5), "Flipkart", 3499.0, "Shopping"),
+    (date(2026, 9, 13), "DMart", 2140.0, "Groceries"),
+    (date(2026, 9, 19), "Apollo Pharmacy", 1285.0, "Health"),
+    (date(2026, 9, 26), "Ajio", 1799.0, "Shopping"),
+    (date(2026, 10, 8), "Amazon", 3649.0, "Shopping"),
+    (date(2026, 10, 17), "Reliance Fresh", 1920.0, "Groceries"),
+    (date(2026, 10, 24), "Myntra", 1299.0, "Shopping"),
+]
 
 
 def mask_upi(name):
@@ -93,7 +120,9 @@ def random_date():
 
 def build_dataset(target_rows, extra_merchants=False):
     """Build one fake statement (DataFrame) with about `target_rows` rows of everyday spending
-    plus the fixed extras. Same seeds every time, so the same target gives the same data."""
+    plus the fixed extras. Same seeds every time, so the same target gives the same data.
+    extra_merchants=True builds the training file; False builds the demo statement."""
+    demo = not extra_merchants
     random.seed(42)   # fixed seed -> same data every run (easy to demo and test)
 
     rows = []  # each row = [date, description, amount, category]
@@ -105,6 +134,8 @@ def build_dataset(target_rows, extra_merchants=False):
 
     # Unusual big spends
     for d, merchant, amount, category in UNUSUAL:
+        if demo:
+            d = DEMO_UNUSUAL_DATES[merchant]
         rows.append([d, make_description(merchant, category), amount, category])
 
     # P2P transfers (about 5% of rows): amounts are round-ish numbers
@@ -256,6 +287,11 @@ def build_dataset(target_rows, extra_merchants=False):
                     shown = typo(name) if rng.random() < 0.25 else name
                     rows.append(extra_row(varied_description(shown), category))
 
+    # 4f. Demo statement only: the extra recent purchases (last, so the rows above stay the same)
+    if demo:
+        for d, merchant, amount, category in DEMO_RECENT:
+            rows.append([d, make_description(merchant, category), amount, category])
+
     # ---------------------------------------------------------------------------
     # 5. Income: a monthly salary and a few refunds (credits).
     #    Credits are labelled "Income" / "Refund" here; the app does the same without using the ML model.
@@ -285,15 +321,16 @@ def build_dataset(target_rows, extra_merchants=False):
 
 
 # Two files from the same generator:
-#   transactions.csv = the demo statement you upload to the app: realistic amounts, ~25% savings
+#   transactions.csv = the demo statement you upload to the app: realistic amounts, ~22% savings
 #   training.csv     = what the ML model learns from: many more rows (amounts do not matter to the
 #                      model, only the description text and the category do)
-for path, target, extra in [("data/transactions.csv", 200, False), ("data/training.csv", 1500, True)]:
-    df = build_dataset(target, extra_merchants=extra)
-    os.makedirs("data", exist_ok=True)
-    df.to_csv(path, index=False)
-    print(f"Saved {len(df)} rows to {path}")
-    if "transactions" in path:   # savings only means something for the demo statement
-        spent = df[(df["type"] == "debit") & (df["category"] != "Transfers")]["amount"].sum()
-        earned = df[df["type"] == "credit"]["amount"].sum()
-        print(f"  income {earned:,.0f}  spent {spent:,.0f}  savings {(earned - spent) / earned:.1%}")
+if __name__ == "__main__":   # importing this file does not overwrite any data
+    for path, target, extra in [("data/transactions.csv", 200, False), ("data/training.csv", 1500, True)]:
+        df = build_dataset(target, extra_merchants=extra)
+        os.makedirs("data", exist_ok=True)
+        df.to_csv(path, index=False)
+        print(f"Saved {len(df)} rows to {path}")
+        if "transactions" in path:   # savings only means something for the demo statement
+            spent = df[(df["type"] == "debit") & (df["category"] != "Transfers")]["amount"].sum()
+            earned = df[df["type"] == "credit"]["amount"].sum()
+            print(f"  income {earned:,.0f}  spent {spent:,.0f}  savings {(earned - spent) / earned:.1%}")

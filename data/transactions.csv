@@ -758,6 +758,7 @@ date,description,amount,type,category
 2025-10-07,Jio Postpaid,599.0,debit,Bills
 2025-10-07,Rohan - UPI,3392.66,debit,Transfers
 2025-10-08,BOOKMYSHOW TICKETS,820.13,debit,Entertainment
+2025-10-09,UPI/251282538206/Fortis Hospital/fortishosp@ybl,12000.0,debit,Health
 2025-10-10,Airtel Broadband,999.0,debit,Bills
 2025-10-12,Spotify Premium,119.0,debit,Entertainment
 2025-10-12,Takeaway,154.67,debit,Food
@@ -789,6 +790,7 @@ date,description,amount,type,category
 2025-11-15,BESCOM Electricity,1450.0,debit,Bills
 2025-11-15,INOX Movis Bill 4184,515.44,debit,Entertainment
 2025-11-16,IB BILLPAY Decathlon Sports,3150.96,debit,Shopping
+2025-11-18,UPI/914655221101/Tanishq Jewellers/tanishqjew@ybl,18000.0,debit,Shopping
 2025-11-20,Gym Membership,1200.0,debit,Health
 2025-11-25,lunch,320.94,debit,Food
 2025-11-25,FUEL,178.1,debit,Travel
@@ -820,6 +822,7 @@ date,description,amount,type,category
 2025-12-20,Gym Membership,1200.0,debit,Health
 2025-12-20,Transfer to Vikram,4139.26,debit,Transfers
 2025-12-21,UPI/DR/414966582768/Pizza Hut/okaxis,498.71,debit,Food
+2025-12-22,UPI/403832645883/MakeMyTrip - Flight Tickets/makemytrip@okaxis,15000.0,debit,Travel
 2025-12-23,IB BILLPAY Max Fashion,3206.46,debit,Shopping
 2025-12-24,Purchase at Aiutel Postpaid,1862.86,debit,Bills
 2025-12-24,Pooja Sharma - UPI,3651.17,debit,Transfers
@@ -848,6 +851,7 @@ date,description,amount,type,category
 2026-01-25,Purchase at Vijay  Sales,1292.29,debit,Shopping
 2026-01-26,Starbucks Coffee,308.27,debit,Food
 2026-01-26,Paid to Eatfit,309.27,debit,Food
+2026-01-27,UPI/198912225902/Goa Resort Booking/goaresortb@okaxis,20000.0,debit,Travel
 2026-01-27,PUMA TSORE,1129.71,debit,Shopping
 2026-01-27,Cult.fit Payment,1300.06,debit,Health
 2026-01-29,Furniture,2639.87,debit,Shopping
@@ -874,6 +878,7 @@ date,description,amount,type,category
 2026-02-12,Spotify Premium,119.0,debit,Entertainment
 2026-02-12,UPI/DR/428595161309/Airtel Postpaid/ybl,863.15,debit,Bills
 2026-02-13,Unknown,965.12,debit,Others
+2026-02-14,UPI/223005401501/Croma Electronics - Laptop/cromaelect@ybl,42000.0,debit,Shopping
 2026-02-14,NETFLIX INDIA,196.42,debit,Entertainment
 2026-02-14,Doctor Visit,192.34,debit,Health
 2026-02-14,SENT TO FRIEND,3628.76,debit,Transfers
@@ -967,6 +972,7 @@ date,description,amount,type,category
 2026-05-02,Wellness Foreveer - Chennai,1231.31,debit,Health
 2026-05-03,Sent to Rohan,1390.52,debit,Transfers
 2026-05-05,Netflix,649.0,debit,Entertainment
+2026-05-05,UPI/566392613993/Apple Store - iPhone/applestore@ybl,48000.0,debit,Shopping
 2026-05-06,bus ticket,334.85,debit,Travel
 2026-05-07,Jio Postpaid,599.0,debit,Bills
 2026-05-07,STAR BAZAAR,1749.53,debit,Groceries
@@ -1014,7 +1020,6 @@ date,description,amount,type,category
 2026-06-10,Kirana Store,1336.11,debit,Groceries
 2026-06-12,Spotify Premium,119.0,debit,Entertainment
 2026-06-12,Tata Power Delhi - Mumbai,1256.37,debit,Bills
-2026-06-14,UPI/223005401501/Croma Electronics - Laptop/cromaelect@ybl,42000.0,debit,Shopping
 2026-06-14,UPI/DR/368655866861/JioMrat/oksbi,966.34,debit,Groceries
 2026-06-15,BESCOM Electricity,1450.0,debit,Bills
 2026-06-15,Vodafone Recharge,1711.52,debit,Bills
@@ -1058,7 +1063,6 @@ date,description,amount,type,category
 2026-07-20,Gym Membership,1200.0,debit,Health
 2026-07-20,UPI/DR/793543014979/Apoll Diagnostics/paytm,502.25,debit,Health
 2026-07-20,MISCELLANEOUS,599.53,debit,Others
-2026-07-22,UPI/403832645883/MakeMyTrip - Flight Tickets/makemytrip@okaxis,15000.0,debit,Travel
 2026-07-22,dmart ruady,662.1,debit,Groceries
 2026-07-22,VEGETABLE MARKET,1249.86,debit,Groceries
 2026-07-22,Mahanagar Gas Ltd Bill 7404,439.7,debit,Bills
@@ -1079,25 +1083,28 @@ date,description,amount,type,category
 2026-08-04,Furniture,626.36,debit,Shopping
 2026-08-04,LOAN EMI,730.71,debit,Bills
 2026-08-05,Netflix,649.0,debit,Entertainment
+2026-08-06,UPI/492102028955/Myntra/myntra@paytm,2349.0,debit,Shopping
 2026-08-07,Jio Postpaid,599.0,debit,Bills
 2026-08-07,Chai Point Cafe Payment,335.24,debit,Food
 2026-08-08,Internet Bill,1683.51,debit,Bills
-2026-08-09,UPI/251282538206/Fortis Hospital/fortishosp@ybl,12000.0,debit,Health
 2026-08-09,CULT.FIT,798.2,debit,Health
 2026-08-09,Daily Needs,359.62,debit,Groceries
 2026-08-10,Airtel Broadband,999.0,debit,Bills
 2026-08-11,Money Transfer,2069.04,debit,Transfers
 2026-08-11,Transfer to Vikram,2814.4,debit,Transfers
 2026-08-12,Spotify Premium,119.0,debit,Entertainment
+2026-08-12,UPI/260763575623/BigBasket/bigbasket@okaxis,1865.0,debit,Groceries
 2026-08-15,BESCOM Electricity,1450.0,debit,Bills
 2026-08-17,OTHER,799.72,debit,Others
 2026-08-17,DONATION,582.48,debit,Others
 2026-08-19,UPI/DR/572868608924/McDonald's/okaxis,325.21,debit,Food
 2026-08-20,Gym Membership,1200.0,debit,Health
 2026-08-21,INTERNET BILL,994.5,debit,Bills
+2026-08-21,UPI/553252908058/Amazon/amazon@okaxis,2899.0,debit,Shopping
 2026-08-22,Wow Mmoo Bill 1032,528.86,debit,Food
 2026-08-25,Kavya Nair - UPI,3850.9,debit,Transfers
 2026-08-26,Paid to Ola Cabs,534.01,debit,Travel
+2026-08-28,UPI/289708635239/Swiggy/swiggy@ybl,486.0,debit,Food
 2026-08-30,Max Hospital Payment,988.25,debit,Health
 2026-09-01,Amazon.in,1124.9,debit,Shopping
 2026-09-01,Monthly Rent Bill 6556,12000.0,debit,Rent
@@ -1109,6 +1116,7 @@ date,description,amount,type,category
 2026-09-05,UPI/DR/959238958650/Wow Momo/ybl,441.4,debit,Food
 2026-09-05,Biryani By Kilo - Pune,402.71,debit,Food
 2026-09-05,Interest Paid,266.56,debit,Others
+2026-09-05,UPI/780247848027/Flipkart/flipkart@okaxis,3499.0,debit,Shopping
 2026-09-06,IB BILLPAY Rapido Bike Taxi,246.34,debit,Travel
 2026-09-06,cheque clearing,72.66,debit,Others
 2026-09-07,Jio Postpaid,599.0,debit,Bills
@@ -1119,15 +1127,17 @@ date,description,amount,type,category
 2026-09-12,Spotify Premium,119.0,debit,Entertainment
 2026-09-12,Paid to PlayStation Store,167.5,debit,Entertainment
 2026-09-13,UPI/DR/402354679850/PVR INOX/okaxis,352.73,debit,Entertainment
+2026-09-13,UPI/257123463473/DMart/dmart@okaxis,2140.0,debit,Groceries
 2026-09-15,BESCOM Electricity,1450.0,debit,Bills
-2026-09-18,UPI/914655221101/Tanishq Jewellers/tanishqjew@ybl,18000.0,debit,Shopping
 2026-09-18,DMart Ready,456.88,debit,Groceries
 2026-09-19,LOAN TO FRIEND,2742.67,debit,Transfers
+2026-09-19,UPI/802060293051/Apollo Pharmacy/apollophar@paytm,1285.0,debit,Health
 2026-09-20,Gym Membership,1200.0,debit,Health
 2026-09-21,Purchase at Aplolo Pharmacy Store,1666.68,debit,Health
 2026-09-24,transport,690.93,debit,Travel
 2026-09-25,blinkit instant,1531.22,debit,Groceries
 2026-09-26,Fortis Clinic,675.06,debit,Health
+2026-09-26,UPI/381146714497/Ajio/ajio@ybl,1799.0,debit,Shopping
 2026-09-27,others,678.12,debit,Others
 2026-09-28,CREDIT CARD BILL,864.83,debit,Bills
 2026-09-30,INOX Movies - Mumbai,416.89,debit,Entertainment
@@ -1136,16 +1146,17 @@ date,description,amount,type,category
 2026-10-03,Apollo Diagnostics Payment,900.39,debit,Health
 2026-10-04,FRUITS,1526.0,debit,Groceries
 2026-10-05,Netflix,649.0,debit,Entertainment
-2026-10-05,UPI/566392613993/Apple Store - iPhone/applestore@ybl,48000.0,debit,Shopping
 2026-10-06,Paid to RedBus,419.56,debit,Travel
 2026-10-06,Streaming,728.08,debit,Entertainment
 2026-10-07,Jio Postpaid,599.0,debit,Bills
+2026-10-08,UPI/984329078416/Amazon/amazon@icici,3649.0,debit,Shopping
 2026-10-10,Airtel Broadband,999.0,debit,Bills
 2026-10-10,CLOTHES,3255.21,debit,Shopping
 2026-10-12,Spotify Premium,119.0,debit,Entertainment
 2026-10-13,UPI/67800717922/Kavya Nair/kavy****@oksbi,4735.04,debit,Transfers
 2026-10-15,BESCOM Electricity,1450.0,debit,Bills
 2026-10-16,kfc,168.12,debit,Food
+2026-10-17,UPI/417403277612/Reliance Fresh/reliancefr@okaxis,1920.0,debit,Groceries
 2026-10-19,CHAAYOS,398.84,debit,Food
 2026-10-19,Indian Oil FFuel Bill 1579,495.89,debit,Travel
 2026-10-20,Gym Membership,1200.0,debit,Health
@@ -1153,9 +1164,9 @@ date,description,amount,type,category
 2026-10-23,OLA CABS,405.97,debit,Travel
 2026-10-23,Purchase at Max Hospital,614.4,debit,Health
 2026-10-23,fuel,644.95,debit,Travel
+2026-10-24,UPI/585648538896/Myntra/myntra@paytm,1299.0,debit,Shopping
 2026-10-24,Refund - BookMyShow,855.53,credit,Refund
 2026-10-26,Purchase at Baskin Robbins,313.69,debit,Food
-2026-10-27,UPI/198912225902/Goa Resort Booking/goaresortb@okaxis,20000.0,debit,Travel
 2026-10-27,STREET FOOD,425.24,debit,Food
 2026-10-28,Transfer to Divya,1633.23,debit,Transfers
 2026-10-29,Swigg Order - Mumbai,263.18,debit,Food
