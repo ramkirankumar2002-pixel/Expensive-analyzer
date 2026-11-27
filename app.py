@@ -194,8 +194,9 @@ if data_id is not None and st.session_state.get("data_id") != data_id:
     st.session_state.parsed = parsed
     st.session_state.upload_summary = summary
     st.session_state.data_id = data_id
-    # AI reports were written about the previous statement: forget them, so they can't end up in this one
-    for key in [k for k in st.session_state if str(k).startswith("report_")]:
+    # AI reports (and their audio) were about the previous statement: forget them, so they can't end up in this
+    # one. The call counters (calls_...) are kept, so a new upload does not reset the limits.
+    for key in [k for k in st.session_state if str(k).startswith(("report_", "audio_"))]:
         del st.session_state[key]
     st.session_state.table = categorize(parsed)
     st.session_state.editor_version += 1
@@ -532,14 +533,17 @@ def show_ai_report(table, month, budgets):
     # One saved report per month AND language: switching back to one you already made needs no new Gemini call
     key = rp.report_cache_key(month, language)
     if button_column.button("Generate AI Report"):
-        st.session_state.pop(tts.audio_cache_key(month, language), None)    # old audio would not match new text
-        stats = rp.build_report_stats(table, month.to_timestamp(), budgets, goals if include_goals else None)
-        with st.spinner("Asking Gemini..."):
-            try:
-                st.session_state[key] = rp.generate_report(stats, language)
-            except rp.ReportError as error:
-                st.session_state.pop(key, None)
-                st.error(str(error))
+        if not rp.take_call(st.session_state, "calls_report", rp.REPORT_LIMIT):
+            st.warning(rp.REPORT_LIMIT_MESSAGE)               # saved reports and audio stay as they are
+        else:
+            st.session_state.pop(tts.audio_cache_key(month, language), None)    # old audio would not match new text
+            stats = rp.build_report_stats(table, month.to_timestamp(), budgets, goals if include_goals else None)
+            with st.spinner("Asking Gemini..."):
+                try:
+                    st.session_state[key] = rp.generate_report(stats, language)
+                except rp.ReportError as error:
+                    st.session_state.pop(key, None)
+                    st.error(str(error))
     if key in st.session_state:
         result = st.session_state[key]
         st.write(result["summary"])
@@ -554,12 +558,15 @@ def show_listen(report, month, language):
     key = tts.audio_cache_key(month, language)                # saved audio: one for each month and language
     clicked = st.button("🔊 Listen to report")
     st.caption("Listen sends only the report text above to Gemini.")
-    if clicked and key not in st.session_state:               # already made? then no new call
-        with st.spinner("Creating the audio..."):
-            try:
-                st.session_state[key] = tts.generate_audio(report, language)
-            except tts.TTSError as error:
-                st.error(str(error))                          # the text report above stays on the page
+    if clicked and key not in st.session_state:               # already made? then no new call (and no count)
+        if not rp.take_call(st.session_state, "calls_speech", tts.SPEECH_LIMIT):
+            st.warning(tts.SPEECH_LIMIT_MESSAGE)
+        else:
+            with st.spinner("Creating the audio..."):
+                try:
+                    st.session_state[key] = tts.generate_audio(report, language)
+                except tts.TTSError as error:
+                    st.error(str(error))                      # the text report above stays on the page
     if key in st.session_state:
         wav = st.session_state[key]["wav"]
         st.audio(wav, format="audio/wav", autoplay=clicked)

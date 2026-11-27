@@ -30,6 +30,22 @@ LANGUAGE_INSTRUCTIONS = {
                 'for example "Is mahine aapne Food par ₹4,800 kharch kiye".',
 }
 
+# At most this many report requests per browser session, so one visitor can't use up the free quota
+REPORT_LIMIT = 5
+REPORT_LIMIT_MESSAGE = (f"You've reached the limit of {REPORT_LIMIT} AI reports for this session. "
+                        "Reports you already made are still available.")
+
+
+def take_call(counts, name, limit):
+    """Use up one of the allowed calls. counts is a dict (the app passes st.session_state).
+    Returns False, and counts nothing, when the limit is already reached.
+    A call is counted when it starts, so a failed one counts too (it may still use quota)."""
+    used = counts.get(name, 0)
+    if used >= limit:
+        return False
+    counts[name] = used + 1
+    return True
+
 
 class ReportError(Exception):
     """A problem we can show to the user as-is (message is already friendly)."""

@@ -24,6 +24,11 @@ CHANNELS = 1
 
 FRIENDLY_ERROR = "Couldn't generate audio right now, try again in a minute"
 
+# At most this many speech requests per browser session (counted with report.take_call)
+SPEECH_LIMIT = 3
+SPEECH_LIMIT_MESSAGE = (f"You've reached the limit of {SPEECH_LIMIT} audio requests for this session. "
+                        "Audio you already made can still be played and downloaded.")
+
 # For each report language: the language code and how the voice should speak
 VOICE_SETTINGS = {
     "en": {

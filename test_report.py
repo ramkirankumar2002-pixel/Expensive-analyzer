@@ -201,6 +201,13 @@ def test_prompt_has_no_merchant_names_in_any_language():
         for secret in ["Swiggy", "order", "Salary", "ACME", "Metro card", "Ramesh", "Sent to", "Wedding"]:
             assert secret not in seen[0], (language, secret)
 
+def test_report_limit_is_five_per_session():
+    session = {}
+    assert rp.REPORT_LIMIT == 5 and "5 AI reports" in rp.REPORT_LIMIT_MESSAGE
+    assert [rp.take_call(session, "calls_report", rp.REPORT_LIMIT) for _ in range(7)] == [True] * 5 + [False] * 2
+    assert session == {"calls_report": 5}                           # blocked tries are not counted
+    assert rp.take_call({}, "calls_report", rp.REPORT_LIMIT)        # a new session starts from zero
+
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):

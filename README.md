@@ -44,6 +44,9 @@ and a plain-English summary, without sending any personal transaction text to an
   Hindi or Hinglish, with a WAV download. Only the report text is sent. The audio is kept per month and
   language while the app is open, and it is not part of the HTML report. On Gemini's free tier, Google
   may use what is sent to improve its products.
+- **Call limits:** each browser session can make 5 report requests and 3 speech requests (failed ones
+  count; replaying saved audio or showing a saved report does not). Refreshing the page starts a new
+  session, so this limits accidental overuse and is not protection against deliberate abuse.
 - **Download monthly report** (Insights page): one self-contained HTML file for the chosen month
   (`expense-report-YYYY-MM.html`) with inline CSS and the Plotly chart inside, made for printing (Ctrl+P):
   summary cards, categories, top merchants, unusual spends, subscriptions, budgets, goals, forecast, the

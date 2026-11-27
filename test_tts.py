@@ -137,6 +137,13 @@ def test_the_key_is_never_printed():
         assert_friendly(broken)
     assert "fake-key" not in console.getvalue() and "<key>" in console.getvalue()
 
+def test_speech_limit_is_three_and_separate_from_reports():
+    session = {}
+    assert tts.SPEECH_LIMIT == 3 and "3 audio requests" in tts.SPEECH_LIMIT_MESSAGE
+    assert [rp.take_call(session, "calls_speech", tts.SPEECH_LIMIT) for _ in range(4)] == [True] * 3 + [False]
+    assert rp.take_call(session, "calls_report", rp.REPORT_LIMIT)   # reports have their own counter
+    assert session == {"calls_speech": 3, "calls_report": 1}
+
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
