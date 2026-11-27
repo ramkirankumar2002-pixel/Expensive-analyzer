@@ -4,6 +4,9 @@ An AI-based analytical system that reads a bank / UPI statement, categorizes eve
 machine learning, shows a spending dashboard and writes a short AI summary of your month.
 (Semester project.)
 
+**Live demo:** https://expense-analyzer-jrkznefzvsbzrlvfd5xlrj.streamlit.app/
+(click **Try with sample data**; please don't upload real statements to the public demo).
+
 ## Problem statement
 
 Bank and UPI statements are long lists of cryptic narrations such as
