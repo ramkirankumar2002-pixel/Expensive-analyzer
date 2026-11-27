@@ -4,13 +4,19 @@
 #   - only DEBITS are spending, only CREDITS are income (salary and refunds are credits)
 #   - debits in the "Transfers" category (money sent to people) are NOT spending: they are shown
 #     separately as "Transfers out" and left out of the category totals and spending charts
+#   - rows labelled "Self transfer" (money moved between the user's own accounts, see merger.py) are
+#     neither spending nor income
 #
 # Input everywhere is the table from parser + categorizer:
 #   date, description, amount (always positive), type ("debit"/"credit"), merchant, category
+#   (+ source = which account, when merger.py was used)
 
 import re
 
 import pandas as pd
+
+# Extra label (like Income / Refund): it is NOT one of the 10 spending categories
+SELF_TRANSFER = "Self transfer"
 
 
 def inr(amount, decimals=0):
@@ -27,8 +33,8 @@ def inr(amount, decimals=0):
 
 
 def debits(df):
-    """Only the rows where money went out (spending)."""
-    return df[df["type"] == "debit"]
+    """Only the rows where money went out (spending). Self transfers are left out."""
+    return df[(df["type"] == "debit") & (df["category"] != SELF_TRANSFER)]
 
 
 def spending(df):
@@ -44,8 +50,8 @@ def transfers_out(df):
 
 
 def credits(df):
-    """Only the rows where money came in (salary, refunds, ...)."""
-    return df[df["type"] == "credit"]
+    """Only the rows where money came in (salary, refunds, ...). Self transfers are left out."""
+    return df[(df["type"] == "credit") & (df["category"] != SELF_TRANSFER)]
 
 
 def summary(df):
@@ -107,10 +113,13 @@ def biggest_transactions(df, n=5):
 
 
 def filter_transactions(df, start=None, end=None, categories=None,
-                        min_amount=None, max_amount=None, search=""):
+                        min_amount=None, max_amount=None, search="", source=None):
     """Apply the Transactions-page filters. Any filter left as None / empty is skipped.
-    start / end are dates (inclusive); search matches the merchant or description text."""
+    start / end are dates (inclusive); search matches the merchant or description text;
+    source is one account label (None = all accounts)."""
     keep = pd.Series(True, index=df.index)
+    if source is not None:
+        keep &= df["source"] == source
     if start is not None:
         keep &= df["date"] >= pd.Timestamp(start)
     if end is not None:

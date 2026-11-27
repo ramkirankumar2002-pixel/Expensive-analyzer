@@ -5,7 +5,7 @@ import theme as th
 
 
 def test_every_category_has_emoji_and_colour():
-    for name in cz.CATEGORIES + ["Income", "Refund"]:
+    for name in cz.CATEGORIES + ["Income", "Refund", "Self transfer"]:
         emoji, colour = th.CATEGORY_STYLE[name]
         assert emoji and colour.startswith("#")
         assert th.label(name) in th.COLOR_MAP

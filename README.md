@@ -18,6 +18,16 @@ and a plain-English summary, without sending any personal transaction text to an
 
 - **Upload CSV or Excel** statements from different banks (column names are matched automatically; if
   no description column is found, you choose it from a dropdown).
+- **Several statements at once** (different banks or UPI apps): they are merged into one table sorted
+  by date, each row tagged with an account label you can edit. Exact duplicates within an account (same
+  date, amount, description and debit/credit type) are removed. A debit in one account and a credit of
+  the same amount in another within 2 days is labelled **Self transfer** and counts as neither spending
+  nor income. An upload summary shows rows per file, duplicates removed and self transfers found, and
+  the Dashboard and Transactions pages get a **Source** filter.
+  Limits of these simple rules: two unrelated payments of the same amount can be mistaken for a self
+  transfer, a transfer with a bank fee (different amounts) is missed, and two truly identical payments
+  on the same day are counted once. Nothing is removed or paired when you upload a single file.
+  Try it with `data/sample_bank_a.csv` and `data/sample_bank_b.csv` (fake data).
 - **Friendly error messages** for a wrong file type, an empty or damaged file, a missing date or
   amount column, or rows with unreadable dates and amounts.
 - **Privacy by design:** UPI IDs and long account / reference numbers are masked while parsing.
@@ -158,6 +168,7 @@ Run the tests (each file prints OK lines and finishes with "passed"):
 
 ```powershell
 python test_parser.py
+python test_merger.py
 python test_categorizer.py
 python test_analytics.py
 python test_insights.py
@@ -181,6 +192,7 @@ Expensive analyzer/
 |-- theme.py               look and feel: category emojis/colours, CSS, cards, chart styling
 |-- .streamlit/config.toml dark theme (teal accent)
 |-- parser.py              read + clean + mask a statement
+|-- merger.py              combine several statements: duplicates, self transfers
 |-- categorizer.py         rules + ML categorizer, training and evaluation
 |-- analytics.py           totals and chart data for the dashboard
 |-- insights.py            unusual spends, subscriptions, budgets, forecast
@@ -194,7 +206,8 @@ Expensive analyzer/
 |-- data/
 |   |-- training.csv           synthetic training data
 |   |-- test_realistic.csv     messy test set (never used for training)
-|   `-- transactions.csv       fake demo statement
+|   |-- transactions.csv       fake demo statement
+|   `-- sample_bank_*.csv      two small fake statements with self transfers between them
 |-- models/
 |   |-- categorizer.joblib     trained model
 |   `-- confusion_matrix*.png  evaluation images

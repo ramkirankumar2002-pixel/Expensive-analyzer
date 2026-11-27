@@ -13,6 +13,7 @@ import streamlit as st
 import analytics as an
 import categorizer as cz
 import insights as ins
+import merger as mg
 import report as rp
 import theme as th
 from parser import MissingColumnError, parse_statement
@@ -80,8 +81,12 @@ def save_current_budgets(new):
 
 
 def categorize(parsed):
-    """Rules + ML + the user's saved corrections for every row of the parsed statement."""
-    return cz.categorize_dataframe(parsed, bundle=st.session_state.bundle, corrections=current_corrections())
+    """Rules + ML + the user's saved corrections for every row of the parsed statement.
+    Self transfers found by merger.py then get their own label, whatever the rules said."""
+    table = cz.categorize_dataframe(parsed, bundle=st.session_state.bundle, corrections=current_corrections())
+    if "self_transfer" in table.columns:                  # only there when several files were merged
+        table.loc[table["self_transfer"], "category"] = an.SELF_TRANSFER
+    return table
 
 
 # --- Sidebar: navigation + upload ------------------------------------------------------------
@@ -92,39 +97,103 @@ page = st.sidebar.radio("Go to", list(PAGE_ICONS), format_func=lambda p: f"{PAGE
                         label_visibility="collapsed")
 st.sidebar.markdown('<div class="sidebar-spacer"></div>', unsafe_allow_html=True)   # pushes the upload box down
 
-uploaded = st.sidebar.file_uploader("📤 Upload your bank / UPI statement", type=["csv", "xlsx", "xls"])
+uploads = st.sidebar.file_uploader("📤 Upload your bank / UPI statement(s)", type=["csv", "xlsx", "xls"],
+                                   accept_multiple_files=True,
+                                   help="You can add statements from several banks or UPI apps at once.")
 st.sidebar.caption("🔒 " + PRIVACY_NOTE)
 if st.sidebar.button("🧪 Try with sample data", help="Loads a fake statement so you can explore the app"):
     st.session_state.source = "sample"                    # the newest choice (button or upload) wins
-if uploaded is not None and (uploaded.name, uploaded.size) != st.session_state.get("seen_upload"):
-    st.session_state.seen_upload = (uploaded.name, uploaded.size)
+upload_ids = tuple(f.file_id for f in uploads)            # changes when a file is added or removed
+if uploads and upload_ids != st.session_state.get("seen_upload"):
+    st.session_state.seen_upload = upload_ids
     st.session_state.source = "upload"
 
-# `statement` is what we parse: the sample file's path, or the uploaded file
-statement = SAMPLE_PATH if st.session_state.get("source") == "sample" else uploaded
-if statement is not None:
-    file_id = ("sample",) if statement == SAMPLE_PATH else (uploaded.name, uploaded.size)
-    if st.session_state.get("file_id") != file_id:       # a new file: parse it once
+
+def parse_once(file, key, error_prefix=""):
+    """Parse one file and remember the result, so it is not parsed again on every click.
+    A problem is shown in the sidebar and stops the page. error_prefix says which file it was."""
+    cache = st.session_state.setdefault("parsed_files", {})
+    if key not in cache:
         try:
-            st.session_state.parsed = parse_statement(statement)
+            cache[key] = parse_statement(file)
         except MissingColumnError as error:
             # No column we recognise: let the user say which one holds the description.
-            st.sidebar.warning(f"{error}. Pick the column that describes each transaction.")
+            st.sidebar.warning(f"{error_prefix}{error}. Pick the column that describes each transaction.")
             chosen = st.sidebar.selectbox("Description column", error.columns, index=None,
-                                          placeholder="Choose a column...")
+                                          placeholder="Choose a column...", key=f"description_{key}")
             if chosen is None:
                 st.stop()
             try:
-                st.session_state.parsed = parse_statement(statement, description_column=chosen)
+                cache[key] = parse_statement(file, description_column=chosen)
             except ValueError as error2:
-                st.sidebar.error(str(error2))
+                st.sidebar.error(f"{error_prefix}{error2}")
                 st.stop()
         except ValueError as error:
-            st.sidebar.error(str(error))
+            st.sidebar.error(f"{error_prefix}{error}")
             st.stop()
-        st.session_state.file_id = file_id
-        st.session_state.table = categorize(st.session_state.parsed)
-        st.session_state.editor_version += 1
+    return cache[key]
+
+
+def ask_labels(files):
+    """One editable account label per uploaded file, pre-filled from the file name."""
+    defaults = mg.default_labels([(f.name, f.getvalue()) for f in files])
+    st.sidebar.markdown("**Account labels**")
+    st.sidebar.caption("Use the same label for two files from one account, so overlapping rows are removed.")
+    return [st.sidebar.text_input(f.name, value=default, key=f"label_{f.file_id}").strip() or default
+            for f, default in zip(files, defaults)]
+
+
+def show_upload_summary(summary):
+    """Rows per file, duplicates removed and self transfers found (only after a multi-file upload)."""
+    with st.sidebar.expander("📋 Upload summary", expanded=True):
+        # just two columns: the sidebar is narrow, and the labels are already shown in the boxes above
+        st.dataframe(pd.DataFrame(summary["files"], columns=["File", "Rows"]), hide_index=True, width="stretch")
+        st.markdown(f"Duplicates removed: **{summary['duplicates_removed']}**")
+        st.markdown(f"Self transfers found: **{summary['self_transfers']}** (each is a debit + credit pair)")
+
+
+# What are we showing? The sample file, or the uploaded file(s).
+# data_id describes that choice; the table is only rebuilt when data_id changes.
+using_sample = st.session_state.get("source") == "sample"
+files = [] if using_sample else uploads
+labels = ask_labels(files) if len(files) > 1 else []
+data_id = None
+if using_sample:
+    data_id = ("sample",)
+elif files:
+    data_id = (upload_ids, tuple(labels))
+
+if data_id is not None and st.session_state.get("data_id") != data_id:
+    summary = None
+    if using_sample:
+        parsed = mg.tag_source(parse_once(SAMPLE_PATH, "sample"), "sample data")
+    elif len(files) == 1:                                 # one file: nothing to merge, no row is removed
+        label = mg.default_labels([(files[0].name, files[0].getvalue())])[0]
+        parsed = mg.tag_source(parse_once(files[0], files[0].file_id), label)
+    else:
+        frames = [parse_once(f, f.file_id, error_prefix=f"{f.name}: ") for f in files]
+        parsed, summary = mg.merge_statements(list(zip(labels, frames)))
+        summary["files"] = [(f.name, len(df)) for f, df in zip(files, frames)]     # rows read from each file
+    st.session_state.parsed = parsed
+    st.session_state.upload_summary = summary
+    st.session_state.data_id = data_id
+    st.session_state.table = categorize(parsed)
+    st.session_state.editor_version += 1
+
+if st.session_state.get("upload_summary"):
+    show_upload_summary(st.session_state.upload_summary)
+
+
+def source_filter(table, key):
+    """'Source' dropdown, "All" by default. Returns the chosen account label, or None for all.
+    It is only shown when the table holds more than one account."""
+    sources = sorted(table["source"].unique())
+    if len(sources) < 2:
+        return None
+    # "" stands for All (a label can never be empty). The key includes the accounts, so new data resets the choice.
+    choice = st.selectbox("Source", [""] + sources, format_func=lambda s: s or "All",
+                          key=f"{key}_{'|'.join(sources)}")
+    return choice or None
 
 
 # =================================================================================================
@@ -132,6 +201,7 @@ if statement is not None:
 # =================================================================================================
 def show_dashboard(table):
     st.title("📊 Dashboard")
+    table = an.filter_transactions(table, source=source_filter(table, "dashboard_source"))   # everything below uses this
 
     # --- Summary cards: spent / income / savings / savings %, each with the change vs last month ---
     s = an.summary(table)
@@ -144,7 +214,9 @@ def show_dashboard(table):
     c5.markdown(th.metric_card("📈", "Savings %", "-" if s["savings_pct"] is None else f"{s['savings_pct']:.1f}%",
                                mom["savings_pct"], unit=" pts"), unsafe_allow_html=True)
     st.caption("Spending = debits except Transfers (shown separately). Credits (salary, refunds) count as income. "
-               "Savings = income - spent.")
+               "Savings = income - spent."
+               + (" Self transfers between your own accounts count as neither."
+                  if (table["category"] == an.SELF_TRANSFER).any() else ""))
 
     if s["spent"] == 0:
         st.info("No debit transactions in this statement, so there is nothing to chart.")
@@ -205,11 +277,15 @@ def show_transactions(table):
     st.title("🧾 Transactions")
 
     # --- Filters ---
+    source = source_filter(table, "transactions_source")
+    several_sources = table["source"].nunique() > 1
+    # "Self transfer" is only offered when the data has some
+    extra_labels = [an.SELF_TRANSFER] if (table["category"] == an.SELF_TRANSFER).any() else []
     search = st.text_input("Search merchant or description", placeholder="e.g. swiggy")
     f1, f2, f3 = st.columns([2, 2, 2])
     first, last = table["date"].min().date(), table["date"].max().date()
     date_range = f1.date_input("Date range", value=(first, last), min_value=first, max_value=last)
-    categories = f2.multiselect("Category", cz.CATEGORIES + CREDIT_LABELS, placeholder="All categories")
+    categories = f2.multiselect("Category", cz.CATEGORIES + CREDIT_LABELS + extra_labels, placeholder="All categories")
     top_amount = float(table["amount"].max())
     a1, a2 = f3.columns(2)
     min_amount = a1.number_input("Min ₹", min_value=0.0, max_value=top_amount, value=0.0)
@@ -217,7 +293,7 @@ def show_transactions(table):
 
     # date_input returns 1 date while the user is still picking the 2nd one: wait for both
     start, end = date_range if len(date_range) == 2 else (None, None)
-    shown = an.filter_transactions(table, start, end, categories, min_amount, max_amount, search)
+    shown = an.filter_transactions(table, start, end, categories, min_amount, max_amount, search, source)
 
     # Totals of what is currently shown (debits and credits kept apart)
     spent, income = an.spending(shown)["amount"].sum(), an.credits(shown)["amount"].sum()
@@ -228,13 +304,15 @@ def show_transactions(table):
 
     # --- Editable table: change a category with the dropdown ---
     st.caption("Wrong category? Pick the right one in the dropdown, then click 'Save corrections'. "
-               "Credits are always Income / Refund and cannot be corrected.")
-    view = shown[["date", "merchant", "type", "amount", "category"]].copy()
+               "Credits are always Income / Refund and cannot be corrected."
+               + (" Self transfers cannot be changed either." if extra_labels else ""))
+    columns = ["date", "merchant", "type", "amount", "category"] + (["source"] if several_sources else [])
+    view = shown[columns].copy()
     view["date"] = view["date"].dt.date                               # date only, no 00:00:00
     view["category"] = th.label_column(view["category"])              # show '🍔 Food' (mapped back below)
     # The editor key includes the filters: if they change, the editor starts fresh instead of
     # mixing up edits made on a different set of rows.
-    filter_key = hash((str(date_range), tuple(categories), min_amount, max_amount, search))
+    filter_key = hash((str(date_range), tuple(categories), min_amount, max_amount, search, source))
     edited = st.data_editor(
         view,
         column_config={
@@ -242,9 +320,10 @@ def show_transactions(table):
             "merchant": "Merchant",
             "type": "Type",
             "amount": st.column_config.NumberColumn("Amount", format="₹%.2f"),   # a real number, so it sorts correctly
-            "category": st.column_config.SelectboxColumn("Category", options=[th.label(c) for c in cz.CATEGORIES + CREDIT_LABELS], required=True),
+            "category": st.column_config.SelectboxColumn("Category", options=[th.label(c) for c in cz.CATEGORIES + CREDIT_LABELS + extra_labels], required=True),
+            "source": "Source",
         },
-        disabled=["date", "merchant", "type", "amount"],              # only the category can be changed
+        disabled=["date", "merchant", "type", "amount", "source"],    # only the category can be changed
         hide_index=True,
         width="stretch",
         key=f"editor_{st.session_state.editor_version}_{filter_key}",
@@ -254,9 +333,11 @@ def show_transactions(table):
     # Only debits can be corrected, and only to one of the 10 spending categories
     edited["category"] = edited["category"].map(th.unlabel)           # '🍔 Food' -> 'Food' again
     differs = edited["category"] != shown["category"]
-    changed = edited.index[differs & (shown["type"] == "debit") & edited["category"].isin(cz.CATEGORIES)]
+    editable = (shown["type"] == "debit") & (shown["category"] != an.SELF_TRANSFER)
+    changed = edited.index[differs & editable & edited["category"].isin(cz.CATEGORIES)]
     if (differs.sum() - len(changed)) > 0:
-        st.warning("Some edits are ignored: credits stay Income / Refund, and debits need a spending category.")
+        st.warning("Some edits are ignored: credits stay Income / Refund, self transfers stay as they are, "
+                   "and debits need a spending category.")
     if st.button(f"Save corrections ({len(changed)} changed)", disabled=len(changed) == 0):
         # Save the masked description (not the merchant) because that is what the model trains on
         rows = [(st.session_state.parsed.at[i, "description"], edited.at[i, "category"])

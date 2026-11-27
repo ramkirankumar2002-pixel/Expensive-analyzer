@@ -23,6 +23,7 @@ CATEGORY_STYLE = {
     "Others":        ("📦", "#64748B"),
     "Income":        ("💰", "#34D399"),
     "Refund":        ("↩️", "#38BDF8"),
+    "Self transfer": ("🔄", "#CBD5E1"),
 }
 
 
