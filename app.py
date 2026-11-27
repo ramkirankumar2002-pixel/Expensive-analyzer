@@ -1,9 +1,10 @@
 # app.py - Streamlit dashboard: upload a statement, see the analysis, fix wrong categories, retrain.
 # Run with:  streamlit run app.py
 #
-# Pages (sidebar):  Dashboard  |  Transactions  |  Insights  |  Model
+# Pages (sidebar):  Dashboard  |  Transactions  |  Insights  |  Goals  |  Model
 # The number crunching lives in analytics.py; this file only draws things.
 
+import datetime as dt
 import os
 
 import pandas as pd
@@ -12,6 +13,7 @@ import streamlit as st
 
 import analytics as an
 import categorizer as cz
+import goals as gl
 import insights as ins
 import merger as mg
 import report as rp
@@ -47,8 +49,8 @@ def is_public_demo():
 PUBLIC_DEMO = is_public_demo()
 
 
-# In the public demo every visitor gets their OWN corrections and budgets, kept in st.session_state
-# (gone when the tab closes). Locally they are saved in corrections.csv / budgets.json as before.
+# In the public demo every visitor gets their OWN corrections, budgets and goals, kept in st.session_state
+# (gone when the tab closes). Locally they are saved in corrections.csv / budgets.json / goals.json.
 def current_corrections():
     """{cleaned description: category} the user has saved."""
     if PUBLIC_DEMO:
@@ -80,6 +82,19 @@ def save_current_budgets(new):
         ins.save_budgets(new)
 
 
+def current_goals():
+    if PUBLIC_DEMO:
+        return st.session_state.get("goals", [])
+    return gl.load_goals()
+
+
+def save_current_goals(new):
+    if PUBLIC_DEMO:
+        st.session_state.goals = new
+    else:
+        gl.save_goals(new)
+
+
 def categorize(parsed):
     """Rules + ML + the user's saved corrections for every row of the parsed statement.
     Self transfers found by merger.py then get their own label, whatever the rules said."""
@@ -92,7 +107,7 @@ def categorize(parsed):
 # --- Sidebar: navigation + upload ------------------------------------------------------------
 st.sidebar.markdown('<div class="brand"><span class="logo">💸</span><div><div class="name">Expense Analyzer</div>'
                     '<div class="tag">Know where your money goes</div></div></div>', unsafe_allow_html=True)
-PAGE_ICONS = {"Dashboard": "📊", "Transactions": "🧾", "Insights": "✨", "Model": "🧠"}
+PAGE_ICONS = {"Dashboard": "📊", "Transactions": "🧾", "Insights": "✨", "Goals": "🎯", "Model": "🧠"}
 page = st.sidebar.radio("Go to", list(PAGE_ICONS), format_func=lambda p: f"{PAGE_ICONS[p]}  {p}",
                         label_visibility="collapsed")
 st.sidebar.markdown('<div class="sidebar-spacer"></div>', unsafe_allow_html=True)   # pushes the upload box down
@@ -503,9 +518,11 @@ def show_ai_report(table, month, budgets):
     """Ask Gemini for a short summary and saving tips, sending aggregated stats only."""
     st.markdown(th.section("AI monthly report", "A short summary and saving tips from Gemini"), unsafe_allow_html=True)
     st.caption("Only totals, percentages and counts are sent to Gemini: never transaction descriptions or merchant names.")
+    goals = current_goals()
+    include_goals = bool(goals) and st.checkbox("Include savings goal status (numbers only, no goal names)", value=True)
     key = f"report_{month}"                                   # one saved report per month
     if st.button("Generate AI Report"):
-        stats = rp.build_report_stats(table, month.to_timestamp(), budgets)
+        stats = rp.build_report_stats(table, month.to_timestamp(), budgets, goals if include_goals else None)
         with st.spinner("Asking Gemini..."):
             try:
                 st.session_state[key] = rp.generate_report(stats)
@@ -517,6 +534,100 @@ def show_ai_report(table, month, budgets):
         st.write(result["summary"])
         for tip in result["tips"]:
             st.markdown(f"- 💡 {tip}")
+
+
+# =================================================================================================
+# Page 5: Goals (savings goals). Logic lives in goals.py
+# =================================================================================================
+def show_goals(table):
+    st.title("🎯 Goals")
+    goals = current_goals()
+    savings = gl.recent_savings(table)             # whole statement: all accounts together
+
+    months = savings["months"]
+    period = months[0].strftime("%b %Y") + (f" to {months[-1].strftime('%b %Y')}" if len(months) > 1 else "")
+    st.markdown(th.chips([("Average monthly savings", an.inr(savings["savings"])), ("Based on", period)]),
+                unsafe_allow_html=True)
+    st.caption("Savings = income - spending, as on the Dashboard (money sent in Transfers is not subtracted). "
+               f"Averaged over {len(months)} month(s) of your statement. If the statement ends mid-month, "
+               "that month is left out.")
+
+    # --- Add a goal ---
+    with st.expander("➕ Add a goal", expanded=not goals):
+        with st.form("add_goal"):
+            name = st.text_input("Goal name", placeholder="e.g. Laptop")
+            c1, c2, c3 = st.columns(3)
+            target = c1.number_input("Target amount (₹)", min_value=0, step=1000)
+            today = dt.date.today()
+            target_date = c2.date_input("Target date", value=today + dt.timedelta(days=365),
+                                        min_value=today + dt.timedelta(days=1),
+                                        max_value=dt.date(today.year + 30, 12, 31), format="DD/MM/YYYY")
+            saved = c3.number_input("Already saved (₹)", min_value=0, step=1000)
+            if st.form_submit_button("Add goal"):
+                try:
+                    save_current_goals(goals + [gl.make_goal(name, target, target_date, saved)])
+                except ValueError as error:
+                    st.error(str(error))
+                else:
+                    st.toast("Saved the goal for this session." if PUBLIC_DEMO else f"Saved the goal to {gl.GOALS_PATH}.")
+                    st.rerun()
+    if not goals:
+        st.info("No goals yet. Add one above to see if you are on track.")
+        return
+
+    results = [gl.evaluate(goal, savings["savings"]) for goal in goals]
+    if len(goals) > 1:
+        st.caption("Each goal is checked on its own, as if all your savings went to it.")
+        total_needed = sum(r["needed"] for r in results if not r["date_passed"])
+        if total_needed > max(savings["savings"], 0):
+            st.warning(f"Together your goals need {an.inr(total_needed)}/month, more than your average "
+                       f"savings of {an.inr(savings['savings'])}.")
+
+    for goal, result in zip(goals, results):
+        show_goal(goal, result, goals, savings["spend_by_category"])
+
+
+def show_goal(goal, r, goals, spend_by_category):
+    """One goal: status card with progress bar, advice, and update / delete controls."""
+    due = dt.date.fromisoformat(goal["target_date"])
+    if r["reached"]:
+        reach_text = "Reached 🎉"
+    elif r["reach_date"] is None:
+        reach_text = "Never at your current rate"
+    else:
+        reach_text = r["reach_date"].strftime("%b %Y")
+    st.markdown(th.goal_card(goal["name"], r["status"], r["progress"],
+                             f"{an.inr(goal['saved'])} of {an.inr(goal['target'])}",
+                             [("Target date", due.strftime("%d %b %Y")),
+                              ("Months left", str(r["months_left"])),
+                              ("Needed per month", an.inr(r["needed"])),
+                              ("You save per month", an.inr(r["savings"])),
+                              ("You would reach it", reach_text)]),
+                unsafe_allow_html=True)
+
+    if r["date_passed"]:
+        st.error(f"The target date has passed and {an.inr(r['remaining'])} is still missing. "
+                 "Delete this goal and add it again with a new date.")
+    elif r["status"] == gl.OFF_TRACK:
+        cuts, uncovered = gl.suggest_cuts(r["gap"], spend_by_category)
+        st.markdown(f"**To close the gap of {an.inr(r['gap'])}/month:**")
+        for cut in cuts:
+            st.markdown(f"- ✂️ {gl.cut_text(cut)}")
+        if uncovered >= 1:
+            st.warning(f"Cuts of up to {gl.MAX_CUT:.0%} in {', '.join(gl.CUTTABLE)} still leave "
+                       f"{an.inr(uncovered)}/month short. Try a later date or a smaller target.")
+
+    # the id keeps two goals with the same name apart
+    with st.expander(f"Update or delete: {goal['name']}"):
+        new_saved = st.number_input("Already saved (₹)", min_value=0, step=1000, value=int(goal["saved"]),
+                                    key=f"saved_{goal['id']}")
+        c1, c2 = st.columns(2)
+        if c1.button("Update saved amount", key=f"update_{goal['id']}"):
+            save_current_goals([{**g, "saved": float(new_saved)} if g["id"] == goal["id"] else g for g in goals])
+            st.rerun()
+        if c2.button("Delete goal", key=f"delete_{goal['id']}"):
+            save_current_goals([g for g in goals if g["id"] != goal["id"]])
+            st.rerun()
 
 
 def show_empty_state():
@@ -542,5 +653,7 @@ elif page == "Dashboard":
     show_dashboard(st.session_state.table)
 elif page == "Insights":
     show_insights(st.session_state.table)
+elif page == "Goals":
+    show_goals(st.session_state.table)
 else:
     show_transactions(st.session_state.table)

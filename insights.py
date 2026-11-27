@@ -160,6 +160,12 @@ def monthly_by_category(df):
     return table.sort_index()
 
 
+def ends_mid_month(df):
+    """True when the statement stops more than 3 days before the end of its last month."""
+    last_day = df["date"].max()
+    return (last_day.to_period("M").end_time.normalize() - last_day.normalize()).days > 3
+
+
 def forecast_next_month(df, min_months=3):
     """Predict next month's spending per category from past monthly totals.
     Returns (history, forecast, dropped_partial):
@@ -175,8 +181,7 @@ def forecast_next_month(df, min_months=3):
         return history, empty, False
 
     # A statement that stops mid-month would make its last month look cheap and bend the line down.
-    last_day = df["date"].max()
-    dropped_partial = (last_day.to_period("M").end_time.normalize() - last_day.normalize()).days > 3
+    dropped_partial = ends_mid_month(df)
     if dropped_partial:
         history = history.iloc[:-1]
     if len(history) < min_months:

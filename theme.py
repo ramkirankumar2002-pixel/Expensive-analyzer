@@ -66,7 +66,7 @@ h1 {{ font-weight: 700; letter-spacing: -0.5px; }}
 [data-testid="stSidebar"] [role="radiogroup"] {{ gap: 4px; }}
 [data-testid="stSidebar"] [role="radiogroup"] label {{ padding: 8px 12px; border-radius: 12px; }}
 [data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) {{ background: {ACCENT}1F; }}
-.sidebar-spacer {{ height: max(24px, calc(100vh - 640px)); }}
+.sidebar-spacer {{ height: max(24px, calc(100vh - 684px)); }}
 
 /* summary cards */
 .card {{ background: {CARD_BG}; border: 1px solid #1F2740; border-radius: 18px; padding: 16px 18px;
@@ -92,6 +92,12 @@ h1 {{ font-weight: 700; letter-spacing: -0.5px; }}
 .budget .row {{ display:flex; justify-content:space-between; font-size:0.9rem; margin-bottom:8px; }}
 .budget .bar {{ height:8px; border-radius:99px; background:#1F2740; overflow:hidden; }}
 .budget .fill {{ height:100%; border-radius:99px; }}
+
+/* goal cards */
+.goal .row {{ align-items:center; }}
+.goal .badge {{ font-size:0.78rem; font-weight:700; border-radius:99px; padding:3px 12px; border:1px solid; }}
+.goal .progress {{ color:{MUTED}; font-size:0.82rem; margin-top:6px; }}
+.goal .chips {{ margin: 10px 0 0 0; }}
 
 /* empty state */
 .hero {{ text-align:center; background:{CARD_BG}; border:1px dashed {ACCENT}66; border-radius:24px;
@@ -145,6 +151,21 @@ def budget_row(category, spent_text, budget_text, pct, status):
     return (f'<div class="budget"><div class="row"><span>{html.escape(label(category))}</span>'
             f'<span>{html.escape(spent_text)} of {html.escape(budget_text)} ({pct:.0f}%)</span></div>'
             f'<div class="bar"><div class="fill" style="width:{width}%;background:{colour}"></div></div></div>')
+
+
+# goal status -> colour
+GOAL_COLOURS = {"On track": GREEN, "Slightly behind": AMBER, "Off track": RED}
+
+
+def goal_card(name, status, progress, amount_text, facts):
+    """One savings goal: name, coloured status badge, progress bar and a row of facts.
+    progress is 0 to 1; facts = [(label, value), ...]. The goal name is typed by the user, so it is escaped."""
+    colour = GOAL_COLOURS[status]
+    width = min(max(progress, 0), 1) * 100
+    return (f'<div class="budget goal"><div class="row"><span><b>🎯 {html.escape(name)}</b></span>'
+            f'<span class="badge" style="color:{colour};border-color:{colour}">{status}</span></div>'
+            f'<div class="bar"><div class="fill" style="width:{width:.1f}%;background:{colour}"></div></div>'
+            f'<div class="progress">{html.escape(amount_text)} saved ({width:.0f}%)</div>{chips(facts)}</div>')
 
 
 def style_fig(fig, height=360):

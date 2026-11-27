@@ -13,6 +13,7 @@ import pandas as pd
 from dotenv import load_dotenv
 
 import analytics as an
+import goals as gl
 import insights as ins
 
 MODEL_NAME = "gemini-3.5-flash-lite"   # model names get retired often: change it here if Gemini returns 404
@@ -27,8 +28,9 @@ def _pct_change(now, before):
     return None if not before else round((now - before) / before * 100, 1)
 
 
-def build_report_stats(df, month, budgets):
-    """Aggregated stats for one month (month = any date inside it). Returns a plain dict."""
+def build_report_stats(df, month, budgets, goals=None):
+    """Aggregated stats for one month (month = any date inside it). Returns a plain dict.
+    goals (optional) adds each savings goal's numbers as of today, without the goal names."""
     period = pd.Timestamp(month).to_period("M")
     in_month = df[df["date"].dt.to_period("M") == period]
     in_prev = df[df["date"].dt.to_period("M") == period - 1]
@@ -45,7 +47,7 @@ def build_report_stats(df, month, budgets):
     status = ins.budget_status(df, period.to_timestamp(), budgets) if budgets else pd.DataFrame()
     alerts = status[status["status"] != "ok"] if not status.empty else status
 
-    return {
+    stats = {
         "month": period.strftime("%B %Y"),
         "total_spent": round(total),
         "spent_by_category": {c: round(float(a)) for c, a in totals.items()},
@@ -61,6 +63,9 @@ def build_report_stats(df, month, budgets):
         "budget_alerts": [{"category": r.category, "budget": round(r.budget), "spent": round(r.spent),
                            "used_pct": round(r.pct), "status": r.status} for r in alerts.itertuples()],
     }
+    if goals:
+        stats["savings_goals"] = gl.report_stats(goals, df)
+    return stats
 
 
 def _ask_gemini(prompt, api_key):

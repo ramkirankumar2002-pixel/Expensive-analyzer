@@ -40,6 +40,11 @@ and a plain-English summary, without sending any personal transaction text to an
 - **Insights page:** unusual spends (Isolation Forest), subscriptions and recurring payments,
   monthly budgets with warnings, next-month spending forecast (Linear Regression) and an AI monthly
   report.
+- **Goals page:** savings goals (name, target, date, amount already saved) with the months left, the
+  saving needed per month, your average savings over the last 3 months of the statement, a status
+  (On track / Slightly behind = saving at least 80% of what is needed / Off track), a progress bar and
+  the date you would reach it. If off track, it suggests cuts in Food, Shopping, Entertainment and
+  Travel only (the same percentage from each, never more than 50%).
 - **Model page:** retrain the model with your corrections and see accuracy before and after.
 - **AI report (Gemini):** only totals, percentages and counts are sent. Never merchant names or
   transaction descriptions.
@@ -150,9 +155,9 @@ GEMINI_API_KEY=your_key_here
 3. Under **Advanced settings -> Secrets** add `GEMINI_API_KEY = "your_key_here"`. The app reads it from
    `st.secrets` and falls back to the local `.env` file. Without a key everything works except the AI report.
 4. Visitors can click **Try with sample data**. On the cloud the app runs in public-demo mode (detected
-   automatically, or set `PUBLIC_DEMO = "1"`): each visitor's corrections and budgets live only in their own
-   session (`st.session_state`) and disappear when the tab closes, nothing is written to `corrections.csv` or
-   `budgets.json`, and **Retrain model** is disabled. Locally the app behaves as before.
+   automatically, or set `PUBLIC_DEMO = "1"`): each visitor's corrections, budgets and goals live only in their own
+   session (`st.session_state`) and disappear when the tab closes, nothing is written to `corrections.csv`,
+   `budgets.json` or `goals.json`, and **Retrain model** is disabled. Locally the app behaves as before.
 
 ## How to run
 
@@ -173,6 +178,7 @@ python test_categorizer.py
 python test_analytics.py
 python test_insights.py
 python test_report.py
+python test_goals.py
 python test_theme.py
 ```
 
@@ -188,7 +194,7 @@ python categorizer.py
 
 ```
 Expensive analyzer/
-|-- app.py                 Streamlit UI (4 pages)
+|-- app.py                 Streamlit UI (5 pages)
 |-- theme.py               look and feel: category emojis/colours, CSS, cards, chart styling
 |-- .streamlit/config.toml dark theme (teal accent)
 |-- parser.py              read + clean + mask a statement
@@ -196,6 +202,7 @@ Expensive analyzer/
 |-- categorizer.py         rules + ML categorizer, training and evaluation
 |-- analytics.py           totals and chart data for the dashboard
 |-- insights.py            unusual spends, subscriptions, budgets, forecast
+|-- goals.py               savings goals: status, reach date, suggested cuts
 |-- report.py              builds aggregated stats and calls Gemini
 |-- merchants.py           extra merchant names (training data + rules)
 |-- people.py              first names / business words to spot person transfers
@@ -214,4 +221,4 @@ Expensive analyzer/
 `-- docs/limitations.md    detailed limitations of the categorizer
 ```
 
-Created while you use the app (git-ignored, personal): `corrections.csv`, `budgets.json`, `.env`.
+Created while you use the app (git-ignored, personal): `corrections.csv`, `budgets.json`, `goals.json`, `.env`.

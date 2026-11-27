@@ -43,6 +43,14 @@ def test_stats_contain_no_raw_text():
         assert secret not in text
 
 
+def test_stats_include_goals_without_names():
+    goal = {"id": "1", "name": "Ramesh wedding gift", "target": 5000.0, "target_date": "2099-01-01", "saved": 100.0}
+    s = rp.build_report_stats(table(), pd.Timestamp("2026-06-01"), {}, goals=[goal])
+    assert s["savings_goals"][0]["target"] == 5000 and s["savings_goals"][0]["status"] == "On track"
+    assert "Ramesh" not in json.dumps(s) and "wedding" not in json.dumps(s)
+    assert "savings_goals" not in rp.build_report_stats(table(), pd.Timestamp("2026-06-01"), {})
+
+
 def test_missing_key_is_a_friendly_error():
     old = os.environ.pop("GEMINI_API_KEY", None)
     rp.load_dotenv = lambda *a, **k: None          # don't let a real .env file fill the key back in

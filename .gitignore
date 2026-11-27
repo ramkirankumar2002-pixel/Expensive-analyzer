@@ -14,6 +14,8 @@ __pycache__/
 corrections.csv
 # the user's monthly budgets
 budgets.json
+# the user's savings goals
+goals.json
 # real statements go here
 data/real/
 *.xlsx
