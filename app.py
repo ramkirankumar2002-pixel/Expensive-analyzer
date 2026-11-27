@@ -13,6 +13,7 @@ import streamlit as st
 
 import analytics as an
 import categorizer as cz
+import export as ex
 import goals as gl
 import insights as ins
 import merger as mg
@@ -192,6 +193,9 @@ if data_id is not None and st.session_state.get("data_id") != data_id:
     st.session_state.parsed = parsed
     st.session_state.upload_summary = summary
     st.session_state.data_id = data_id
+    # AI reports were written about the previous statement: forget them, so they can't end up in this one
+    for key in [k for k in st.session_state if str(k).startswith("report_")]:
+        del st.session_state[key]
     st.session_state.table = categorize(parsed)
     st.session_state.editor_version += 1
 
@@ -463,7 +467,7 @@ def show_insights(table):
             st.rerun()
 
     months = sorted(table["date"].dt.to_period("M").unique(), reverse=True)     # newest first
-    month = st.selectbox("Month (used for budgets and the AI report)", months,
+    month = st.selectbox("Month (used for budgets, the AI report and the download)", months,
                          format_func=lambda p: p.strftime("%B %Y"))
     if not budgets:
         st.info("Set a budget above to track it month by month.")
@@ -477,6 +481,7 @@ def show_insights(table):
 
     show_forecast(table)
     show_ai_report(table, month, budgets)
+    show_download(table, month, budgets)         # last, so a just-generated AI report is included
 
 
 def show_forecast(table):
@@ -534,6 +539,30 @@ def show_ai_report(table, month, budgets):
         st.write(result["summary"])
         for tip in result["tips"]:
             st.markdown(f"- 💡 {tip}")
+
+
+def show_download(table, month, budgets):
+    """'Download monthly report': one self-contained HTML file for the chosen month (built by export.py)."""
+    period = month.strftime("%B %Y")
+    st.markdown(th.section("Download", "The whole month as one HTML file you can keep or print"),
+                unsafe_allow_html=True)
+    # Read these now: the function below runs later, outside the page script, where session_state is not available
+    goals = current_goals()
+    ai_report = st.session_state.get(f"report_{month}")
+    st.caption(f"Report for {period} (change the month above). "
+               + ("Includes the AI summary and tips." if ai_report
+                  else "Generate the AI report first if you want it included.")
+               + " It contains your merchant and goal names, so share it with care.")
+    st.download_button(
+        "📥 Download monthly report",
+        # a function = the report is only built when the button is clicked, not on every rerun.
+        # It is built in memory and sent to the browser: no file is written on the server (works on Streamlit Cloud).
+        data=lambda: ex.build_report_html(table, month.to_timestamp(), budgets, goals, ai_report),
+        file_name=ex.report_filename(month.to_timestamp()),
+        mime="text/html",
+        on_click="ignore",                       # don't rerun the page after the download
+    )
+    st.caption("To print it or save it as PDF: open the file in your browser and press Ctrl+P.")
 
 
 # =================================================================================================

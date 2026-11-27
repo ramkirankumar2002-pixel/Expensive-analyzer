@@ -166,12 +166,15 @@ def ends_mid_month(df):
     return (last_day.to_period("M").end_time.normalize() - last_day.normalize()).days > 3
 
 
-def forecast_next_month(df, min_months=3):
+def forecast_next_month(df, min_months=3, month_is_complete=False):
     """Predict next month's spending per category from past monthly totals.
     Returns (history, forecast, dropped_partial):
       history  = monthly_by_category() of the complete months used for training
       forecast = DataFrame(category, predicted), biggest first (empty if too little data)
       dropped_partial = True when the last month was left out because the statement ends mid-month.
+
+    month_is_complete = True says the last month of df is known to be over (export.py cuts the statement
+    at an older month), so it is never left out.
 
     For each category we fit a straight line  amount = a * month_number + b  (Linear Regression)
     and read it at the next month number. Negative predictions are set to 0."""
@@ -181,7 +184,7 @@ def forecast_next_month(df, min_months=3):
         return history, empty, False
 
     # A statement that stops mid-month would make its last month look cheap and bend the line down.
-    dropped_partial = ends_mid_month(df)
+    dropped_partial = not month_is_complete and ends_mid_month(df)
     if dropped_partial:
         history = history.iloc[:-1]
     if len(history) < min_months:

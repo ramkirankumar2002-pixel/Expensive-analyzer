@@ -40,6 +40,12 @@ and a plain-English summary, without sending any personal transaction text to an
 - **Insights page:** unusual spends (Isolation Forest), subscriptions and recurring payments,
   monthly budgets with warnings, next-month spending forecast (Linear Regression) and an AI monthly
   report.
+- **Download monthly report** (Insights page): one self-contained HTML file for the chosen month
+  (`expense-report-YYYY-MM.html`) with inline CSS and the Plotly chart inside, made for printing (Ctrl+P):
+  summary cards, categories, top merchants, unusual spends, subscriptions, budgets, goals, forecast, the
+  sources included and, if you generated it, the AI summary. IDs are masked again on the way out, and it is
+  built in memory. The file is a few MB because the chart library is inside it. Subscriptions use the whole
+  statement, goals show today's status, and the forecast uses data up to the chosen month.
 - **Goals page:** savings goals (name, target, date, amount already saved) with the months left, the
   saving needed per month, your average savings over the last 3 months of the statement, a status
   (On track / Slightly behind = saving at least 80% of what is needed / Off track), a progress bar and
@@ -179,6 +185,7 @@ python test_analytics.py
 python test_insights.py
 python test_report.py
 python test_goals.py
+python test_export.py
 python test_theme.py
 ```
 
@@ -204,6 +211,7 @@ Expensive analyzer/
 |-- insights.py            unusual spends, subscriptions, budgets, forecast
 |-- goals.py               savings goals: status, reach date, suggested cuts
 |-- report.py              builds aggregated stats and calls Gemini
+|-- export.py              the downloadable monthly HTML report
 |-- merchants.py           extra merchant names (training data + rules)
 |-- people.py              first names / business words to spot person transfers
 |-- generate_data.py       makes the synthetic training and demo data

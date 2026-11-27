@@ -10,3 +10,7 @@ baseRadius = "large"
 
 [client]
 toolbarMode = "minimal"
+
+# Don't send Streamlit usage statistics from this app
+[browser]
+gatherUsageStats = false
