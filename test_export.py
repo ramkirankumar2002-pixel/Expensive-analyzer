@@ -73,6 +73,27 @@ def test_ai_section_only_when_generated():
     assert 'id="ai"' not in full_report(ai_report=None)
 
 
+def test_hindi_report_is_written_as_utf8():
+    ai = {"summary": "इस महीने आपने Food पर ₹1,25,000 (42.5%) खर्च किए।",
+          "tips": ["घर पर खाना बनाइए।"], "language": "hi"}
+    with tempfile.TemporaryDirectory() as folder:
+        path = ex.save_report(folder, table(), "2026-05-01", ai_report=ai, today=TODAY)
+        with open(path, "rb") as f:
+            raw = f.read()
+    for text in [ai["summary"], ai["tips"][0]]:
+        assert text.encode("utf-8") in raw, text            # real Devanagari bytes, not masked or escaped
+    page = raw.decode("utf-8")
+    assert '<meta charset="utf-8">' in page and '<div lang="hi">' in page
+    assert '"Nirmala UI", "Noto Sans Devanagari", sans-serif' in ex.CSS
+    assert "<link" not in without_scripts(page) and "@font-face" not in ex.CSS
+
+
+def test_hinglish_report_language_tag():
+    ai = {"summary": "Is mahine aapne Food par ₹4,800 kharch kiye.", "tips": [], "language": "hinglish"}
+    page = full_report(ai_report=ai)
+    assert '<div lang="hi-Latn"><p>' in page and ai["summary"] in page
+
+
 def test_empty_extras_still_give_all_sections():
     page = full_report(budgets={}, goals=[], ai_report=None)
     for name in SECTIONS:

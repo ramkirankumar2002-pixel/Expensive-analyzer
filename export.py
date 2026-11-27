@@ -35,7 +35,8 @@ STATUS_CLASS = {"ok": "good", "warning": "warn", "over": "bad",
 # A light theme, because the report is meant to be printed
 CSS = """
 * { box-sizing: border-box; }
-body { margin: 0; background: #f3f4f6; color: #111827; font: 14px/1.5 "Segoe UI", Arial, sans-serif; }
+body { margin: 0; background: #f3f4f6; color: #111827; font: 14px/1.5 "Segoe UI", Arial,
+       "Nirmala UI", "Noto Sans Devanagari", sans-serif; }   /* the last fonts show Hindi (installed fonts only) */
 .page { max-width: 780px; margin: 24px auto; background: #fff; padding: 36px 40px; border-radius: 12px; }
 h1 { margin: 0; font-size: 26px; }
 h2 { font-size: 17px; margin: 28px 0 10px; padding-bottom: 6px; border-bottom: 2px solid #0f766e;
@@ -261,13 +262,18 @@ def forecast_section(table, period):
     return section("forecast", "Forecast for next month", body + note(text))
 
 
+# report language -> HTML language tag (helps the browser pick a font and read the text aloud correctly)
+HTML_LANG = {"en": "en", "hi": "hi", "hinglish": "hi-Latn"}
+
+
 def ai_section(ai_report):
-    """ai_report = {'summary': str, 'tips': [str]} from report.generate_report, or None."""
+    """ai_report = {'summary': str, 'tips': [str], 'language': code} from report.generate_report, or None."""
     if not ai_report:
         return ""                                   # not generated: leave the section out
     body = f"<p>{clean(ai_report['summary'])}</p>"
     if ai_report["tips"]:
         body += "<ul>" + "".join(f"<li>{clean(tip)}</li>" for tip in ai_report["tips"]) + "</ul>"
+    body = f'<div lang="{HTML_LANG.get(ai_report.get("language"), "en")}">{body}</div>'
     return section("ai", "AI summary and tips", body + note("Written by Gemini from aggregated numbers only."))
 
 

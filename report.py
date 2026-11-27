@@ -18,6 +18,18 @@ import insights as ins
 
 MODEL_NAME = "gemini-3.5-flash-lite"   # model names get retired often: change it here if Gemini returns 404
 
+# The report languages: code -> name shown in the app. The first one is the default.
+LANGUAGES = {"en": "English", "hi": "हिंदी (Hindi)", "hinglish": "Hinglish"}
+DEFAULT_LANGUAGE = "en"
+
+# What Gemini is told about each language
+LANGUAGE_INSTRUCTIONS = {
+    "en": "Write in simple English.",
+    "hi": "Write in natural, simple Hindi in Devanagari script, the way people speak (no difficult words).",
+    "hinglish": "Write in Hinglish: a casual Hindi-English mix in Roman script only (no Devanagari), "
+                'for example "Is mahine aapne Food par ₹4,800 kharch kiye".',
+}
+
 
 class ReportError(Exception):
     """A problem we can show to the user as-is (message is already friendly)."""
@@ -68,6 +80,47 @@ def build_report_stats(df, month, budgets, goals=None):
     return stats
 
 
+def report_cache_key(month, language):
+    """The name under which the app saves a report: one for each month and language."""
+    return f"report_{month}_{language}"
+
+
+def format_for_prompt(stats):
+    """A copy of the stats with amounts written as '₹1,25,000' and percentages as '12.5%', so that
+    Gemini only has to copy them. Counts (subscriptions, months left) stay plain numbers."""
+    money = {"total_spent", "spent_by_category", "total_per_month", "amount", "budget", "spent",
+             "target", "saved", "needed_per_month", "average_monthly_savings"}
+    percent = {"savings_pct", "used_pct", "change_vs_last_month_pct"}
+
+    def walk(value, kind=None):
+        if isinstance(value, dict):
+            # a key in the lists above decides the format of its value (and of everything nested in it)
+            return {k: walk(v, "money" if k in money else "percent" if k in percent else kind)
+                    for k, v in value.items()}
+        if isinstance(value, list):
+            return [walk(v, kind) for v in value]
+        if value is None or isinstance(value, str) or kind is None:
+            return value
+        return an.inr(value) if kind == "money" else f"{value}%"
+
+    return walk(stats)
+
+
+def build_prompt(stats, language=DEFAULT_LANGUAGE):
+    """The full text sent to Gemini: instructions, the language, then the aggregated stats."""
+    return (
+        "You are a friendly personal finance coach. Below are aggregated spending stats for one month "
+        "(amounts in Indian rupees). Reply ONLY with JSON of the form "
+        '{"summary": "2-3 sentences on how the month went", "tips": ["3 to 4 short, personal saving tips"]}. '
+        "Mention specific numbers and categories from the stats. "
+        f"{LANGUAGE_INSTRUCTIONS[language]} "
+        'Keep the JSON keys "summary" and "tips" in English. '
+        "Copy category names, ₹ amounts (Indian format like ₹1,25,000) and percentages exactly as they "
+        "appear in the stats. Do not translate category names or numbers, and use only the digits 0-9.\n\n"
+        + json.dumps(format_for_prompt(stats), ensure_ascii=False)
+    )
+
+
 def _ask_gemini(prompt, api_key):
     """Send the prompt to Gemini and return its text. Imported here so tests never need the package."""
     from google import genai
@@ -113,20 +166,16 @@ def get_api_key():
     return os.getenv("GEMINI_API_KEY", "").strip()
 
 
-def generate_report(stats, ask=None):
-    """Turn the stats into {'summary': str, 'tips': [str, ...]} using Gemini.
+def generate_report(stats, language=DEFAULT_LANGUAGE, ask=None):
+    """Turn the stats into {'summary': str, 'tips': [str, ...], 'language': code} using Gemini.
+    language is a key of LANGUAGES.
     ask(prompt, api_key) -> text can be swapped out in tests. Raises ReportError with a friendly message."""
     api_key = get_api_key()
     if not api_key:
         raise ReportError("No Gemini API key found. Add GEMINI_API_KEY to the .env file (local) "
                           "or to the app's Secrets (Streamlit Cloud), then restart the app.")
 
-    prompt = (
-        "You are a friendly personal finance coach. Below are aggregated spending stats for one month "
-        "(amounts in Indian rupees). Reply ONLY with JSON of the form "
-        '{"summary": "2-3 sentences on how the month went", "tips": ["3 to 4 short, personal saving tips"]}. '
-        "Mention specific numbers and categories from the stats.\n\n" + json.dumps(stats, ensure_ascii=False)
-    )
+    prompt = build_prompt(stats, language)
     ask = ask or _ask_gemini
     try:
         try:
@@ -147,5 +196,5 @@ def generate_report(stats, ask=None):
         summary = str(data["summary"]).strip()
         tips = [str(t).strip() for t in data["tips"] if str(t).strip()][:4]
     except (ValueError, KeyError, TypeError):           # not the JSON we asked for: show the raw text instead
-        return {"summary": str(text).strip(), "tips": []}
-    return {"summary": summary, "tips": tips}
+        return {"summary": str(text).strip(), "tips": [], "language": language}
+    return {"summary": summary, "tips": tips, "language": language}

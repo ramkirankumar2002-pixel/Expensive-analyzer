@@ -39,7 +39,7 @@ and a plain-English summary, without sending any personal transaction text to an
   Corrections are saved and take effect immediately.
 - **Insights page:** unusual spends (Isolation Forest), subscriptions and recurring payments,
   monthly budgets with warnings, next-month spending forecast (Linear Regression) and an AI monthly
-  report.
+  report in English, Hindi or Hinglish (kept per month and language while the app is open).
 - **Download monthly report** (Insights page): one self-contained HTML file for the chosen month
   (`expense-report-YYYY-MM.html`) with inline CSS and the Plotly chart inside, made for printing (Ctrl+P):
   summary cards, categories, top merchants, unusual spends, subscriptions, budgets, goals, forecast, the

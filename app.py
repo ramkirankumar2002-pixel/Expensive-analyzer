@@ -480,8 +480,8 @@ def show_insights(table):
             st.warning(f"{row.category} has used {row.pct:.0f}% of its budget.")
 
     show_forecast(table)
-    show_ai_report(table, month, budgets)
-    show_download(table, month, budgets)         # last, so a just-generated AI report is included
+    language = show_ai_report(table, month, budgets)
+    show_download(table, month, budgets, language)    # last, so a just-generated AI report is included
 
 
 def show_forecast(table):
@@ -525,12 +525,16 @@ def show_ai_report(table, month, budgets):
     st.caption("Only totals, percentages and counts are sent to Gemini: never transaction descriptions or merchant names.")
     goals = current_goals()
     include_goals = bool(goals) and st.checkbox("Include savings goal status (numbers only, no goal names)", value=True)
-    key = f"report_{month}"                                   # one saved report per month
-    if st.button("Generate AI Report"):
+    button_column, language_column = st.columns([1, 2], vertical_alignment="bottom")
+    language = language_column.selectbox("Report language", list(rp.LANGUAGES), format_func=rp.LANGUAGES.get,
+                                         key="report_language")    # the first one (English) is the default
+    # One saved report per month AND language: switching back to one you already made needs no new Gemini call
+    key = rp.report_cache_key(month, language)
+    if button_column.button("Generate AI Report"):
         stats = rp.build_report_stats(table, month.to_timestamp(), budgets, goals if include_goals else None)
         with st.spinner("Asking Gemini..."):
             try:
-                st.session_state[key] = rp.generate_report(stats)
+                st.session_state[key] = rp.generate_report(stats, language)
             except rp.ReportError as error:
                 st.session_state.pop(key, None)
                 st.error(str(error))
@@ -539,19 +543,20 @@ def show_ai_report(table, month, budgets):
         st.write(result["summary"])
         for tip in result["tips"]:
             st.markdown(f"- 💡 {tip}")
+    return language                                           # the download uses the same language
 
 
-def show_download(table, month, budgets):
+def show_download(table, month, budgets, language):
     """'Download monthly report': one self-contained HTML file for the chosen month (built by export.py)."""
     period = month.strftime("%B %Y")
     st.markdown(th.section("Download", "The whole month as one HTML file you can keep or print"),
                 unsafe_allow_html=True)
     # Read these now: the function below runs later, outside the page script, where session_state is not available
     goals = current_goals()
-    ai_report = st.session_state.get(f"report_{month}")
+    ai_report = st.session_state.get(rp.report_cache_key(month, language))     # only the chosen language
     st.caption(f"Report for {period} (change the month above). "
-               + ("Includes the AI summary and tips." if ai_report
-                  else "Generate the AI report first if you want it included.")
+               + (f"Includes the AI summary and tips in {rp.LANGUAGES[language]}." if ai_report
+                  else f"Generate the AI report in {rp.LANGUAGES[language]} first if you want it included.")
                + " It contains your merchant and goal names, so share it with care.")
     st.download_button(
         "📥 Download monthly report",
